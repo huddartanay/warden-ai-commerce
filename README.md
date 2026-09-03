@@ -204,9 +204,12 @@ Then open <http://localhost:3000>. The landing page fetches
 ## Build stage
 
 **Stage 1 — done:** scaffold, health, DB connection, frontend shell.
-**Stage 2 — done:** 8-table ORM model (merchants, mandates, catalog_items,
-carts, actions, decisions, audit_log, razorpay_refs), Alembic initial
-migration, seed data (Priya's D2C Coffee + 4 products + 3 mandates), mandate
-state machine, and hash-chained audit writer.
-Next: Warden policy engine, LLM AI buyer agent, Razorpay Test integration,
-judge dashboard.
+**Stage 2 — done:** 8-table ORM model, Alembic migrations, seed data, mandate
+state machine, hash-chained audit writer.
+**Stage 3 — done:** Warden Core policy engine (12 deterministic checks in
+spec order), coordinator (idempotency, reservation, audit events),
+`POST /warden/evaluate`, `POST /warden/approve/{action_id}`,
+`POST /warden/revoke-mandate/{mandate_id}`, `GET /warden/mandate/{id}`,
+`GET /warden/action/{id}`. 73 pytest cases green — see
+[docs/WARDEN_TEST_REPORT.md](docs/WARDEN_TEST_REPORT.md).
+Next: LLM AI buyer agent, Razorpay Test integration, judge dashboard.

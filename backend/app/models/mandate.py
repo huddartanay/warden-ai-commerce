@@ -63,6 +63,13 @@ class Mandate(Base):
         Integer, nullable=False, default=0
     )
 
+    # Soft threshold — a single proposal above this amount (but still within
+    # max_amount) is routed to STEP_UP APPROVAL_REQUIRED instead of ALLOW.
+    # NULL disables the rule.
+    step_up_over_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(14, 2), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )

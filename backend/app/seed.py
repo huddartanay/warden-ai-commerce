@@ -42,6 +42,7 @@ MANDATES: list[dict] = [
         "allowed_categories": ["coffee"],
         "transaction_limit": 1,
         "validity_days": 90,
+        "step_up_over_amount": None,
     },
     {
         "id": "man_B_bulk_5k",
@@ -50,6 +51,8 @@ MANDATES: list[dict] = [
         "allowed_categories": ["coffee"],
         "transaction_limit": 2,
         "validity_days": 90,
+        # Any single proposal above ₹2000 needs human approval.
+        "step_up_over_amount": Decimal("2000.00"),
     },
     {
         "id": "man_C_light_1k",
@@ -58,6 +61,7 @@ MANDATES: list[dict] = [
         "allowed_categories": ["coffee"],
         "transaction_limit": 1,
         "validity_days": 90,
+        "step_up_over_amount": None,
     },
 ]
 
@@ -118,6 +122,7 @@ def seed_data(session: Session, *, now: datetime | None = None) -> dict:
                     status=MandateStatus.ACTIVE,
                     current_period_spend=Decimal("0"),
                     current_period_transactions=0,
+                    step_up_over_amount=m.get("step_up_over_amount"),
                     created_at=when,
                     updated_at=when,
                 )

@@ -26,6 +26,13 @@ def _now_utc() -> datetime:
     return datetime.now(tz=timezone.utc)
 
 
+def _ensure_utc(dt: datetime | None) -> datetime | None:
+    """SQLite drops timezone metadata on round-trip; treat naive datetimes as UTC."""
+    if dt is None:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
 def _as_decimal(v) -> Decimal:
     if isinstance(v, Decimal):
         return v
@@ -37,9 +44,10 @@ def recompute_status(mandate: Mandate, *, now: datetime | None = None) -> Mandat
     if mandate.status == MandateStatus.REVOKED:
         return MandateStatus.REVOKED
 
-    when = now or _now_utc()
+    when = _ensure_utc(now) or _now_utc()
+    end = _ensure_utc(mandate.validity_end)
 
-    if mandate.validity_end is not None and when > mandate.validity_end:
+    if end is not None and when > end:
         return MandateStatus.EXPIRED
 
     spend = _as_decimal(mandate.current_period_spend or 0)
