@@ -206,10 +206,12 @@ Then open <http://localhost:3000>. The landing page fetches
 **Stage 1 — done:** scaffold, health, DB connection, frontend shell.
 **Stage 2 — done:** 8-table ORM model, Alembic migrations, seed data, mandate
 state machine, hash-chained audit writer.
-**Stage 3 — done:** Warden Core policy engine (12 deterministic checks in
-spec order), coordinator (idempotency, reservation, audit events),
-`POST /warden/evaluate`, `POST /warden/approve/{action_id}`,
-`POST /warden/revoke-mandate/{mandate_id}`, `GET /warden/mandate/{id}`,
-`GET /warden/action/{id}`. 73 pytest cases green — see
-[docs/WARDEN_TEST_REPORT.md](docs/WARDEN_TEST_REPORT.md).
-Next: LLM AI buyer agent, Razorpay Test integration, judge dashboard.
+**Stage 3 — done:** Warden Core policy engine + coordinator + HTTP API. 73
+tests. See [docs/WARDEN_TEST_REPORT.md](docs/WARDEN_TEST_REPORT.md).
+**Stage 4 — done:** AI Buyer Agent + Explainer + demo mode.
+`POST /agent/purchase-intent`, `POST /agent/search`, `POST /agent/build-cart`,
+`POST /agent/explain`. LLM abstraction with `AnthropicLLMClient` (live) and
+`MockLLMClient` (deterministic). `WARDEN_LLM_MODE=auto|live|mock` — offline
+demos work end-to-end without a network. **104 pytest cases green.** Warden
+authorization logic is unchanged. LLM never appears in the decision path.
+Next: Razorpay Test integration, judge dashboard.

@@ -8,6 +8,12 @@ types), the schema is bit-identical enough for what these tests exercise.
 
 from __future__ import annotations
 
+import os
+
+# Force the LLM into deterministic mock mode BEFORE any app import that reads
+# settings. Tests must never hit a real network.
+os.environ.setdefault("WARDEN_LLM_MODE", "mock")
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -17,6 +23,11 @@ from sqlalchemy.pool import StaticPool
 # Ensure every model class is registered on Base.metadata before create_all.
 import app.models  # noqa: F401
 from app.db import Base
+
+# Clear the settings cache in case a previous import already resolved it.
+from app.config import get_settings
+
+get_settings.cache_clear()
 
 
 @pytest.fixture

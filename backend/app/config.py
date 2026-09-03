@@ -19,7 +19,19 @@ class Settings(BaseSettings):
 
     razorpay_key_id: str = Field(default="", alias="RAZORPAY_KEY_ID")
     razorpay_key_secret: str = Field(default="", alias="RAZORPAY_KEY_SECRET")
+
+    # LLM
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
+    llm_mode: str = Field(default="auto", alias="WARDEN_LLM_MODE")  # auto|live|mock
+    llm_model: str = Field(
+        default="claude-haiku-4-5-20251001", alias="WARDEN_LLM_MODEL"
+    )
+
+    # Agent confidence threshold — below this the agent asks for human approval
+    # even when Warden itself would ALLOW.
+    agent_confidence_threshold: float = Field(
+        default=0.7, alias="AGENT_CONFIDENCE_THRESHOLD"
+    )
 
     @property
     def cors_origin_list(self) -> list[str]:
