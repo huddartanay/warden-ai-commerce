@@ -27,58 +27,160 @@ never reaches Razorpay.
 ## Architecture
 
 ```
-Customer mandate
-      ↓
-AI Buyer Agent        (LLM — intent, search, cart proposal; NO financial authority)
-      ↓
-Product discovery
-      ↓
-Cart proposal
-      ↓
-WARDEN                (deterministic — the authority)
-      ↓
-ALLOW / STEP_UP / BLOCK
-      ↓
-Razorpay Test APIs    (only after authorization)
-      ↓
-Payment result
-      ↓
-Tamper-evident audit trail   (append-only, hash-chained)
+Customer mandate → AI Buyer Agent → Cart proposal
+      → WARDEN (deterministic) → ALLOW / STEP_UP / BLOCK
+      → Razorpay Test APIs → Payment result → Tamper-evident audit trail
 ```
 
-### Components
+Full breakdown: [docs/architecture.md](docs/architecture.md).
 
-1. **AI Buyer Agent** — LLM-powered intent understanding, catalog search, cart proposal. No financial authority.
-2. **Merchant Catalog Service** — structured product/pricing/category/availability data.
-3. **Warden Core** — deterministic mandate + policy engine, spend/velocity/category/price-drift checks, idempotency, decision routing, state machine.
-4. **Explainer** — optional LLM that turns Warden decisions into natural language. Cannot modify the decision.
-5. **Razorpay Payment Service** — test mode only. Financial tools reachable only after Warden authorization.
-6. **Audit Service** — append-only, hash-chained, complete transaction history.
+**The two hard rules:**
 
-## Core principle
-
-The LLM must **never** be trusted with financial authorization. All financially
-sensitive decisions are deterministic. Warden is the authority.
-
-## Tech stack
-
-- **Frontend:** Next.js · TypeScript · Tailwind CSS
-- **Backend:** Python · FastAPI
-- **Database:** PostgreSQL
-- **AI:** LLM with structured outputs / tool calling
-- **Payments:** Razorpay Test Mode APIs
+1. `backend/app/warden/` never calls an LLM.
+2. `backend/app/payments/` is only reachable after a Warden ALLOW.
 
 ## Repository layout
 
 ```
-backend/    FastAPI service — Warden Core, catalog, mandates, Razorpay, audit
-frontend/   Next.js judge dashboard + demo control panel
-docs/        Design notes and stage plans
+backend/
+  app/
+    api/         HTTP routes (currently: /health/live, /health/ready)
+    models/      SQLAlchemy ORM (Stage 2)
+    schemas/     Pydantic contracts (Stage 2)
+    services/    Business services (catalog, mandates, cart)
+    warden/      Deterministic policy engine — the authority
+    agents/      AI Buyer + Explainer — proposals only, no financial authority
+    payments/    Razorpay adapter — only invoked after ALLOW
+    audit/       Append-only, hash-chained audit log
+    config.py    Settings (pydantic-settings, reads .env)
+    db.py        SQLAlchemy engine + session
+    main.py      FastAPI app factory
+  tests/         pytest suite
+  requirements.txt
+  .env.example
+  pytest.ini
+
+frontend/
+  app/           Next.js 14 app-router pages
+  lib/           API client
+  package.json
+  tsconfig.json
+  tailwind.config.ts
+  postcss.config.mjs
+  next.config.mjs
+  .env.local.example
+
+docs/
+  architecture.md
 ```
 
-## Build plan (MVP first, one stage at a time)
+## Local setup
 
-Staged, incremental delivery. Each stage: inspect → implement only that stage →
-run → test → fix → report → then advance.
+### Prerequisites
 
-Status: **repo scaffolded.** Awaiting Stage 1.
+- Python 3.11+
+- Node.js 18+
+- PostgreSQL 14+ (running locally, or via Docker)
+
+### 1. Backend
+
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env       # then edit DATABASE_URL etc. as needed
+uvicorn app.main:app --reload --port 8000
+```
+
+Backend endpoints:
+
+- <http://localhost:8000/> — service info
+- <http://localhost:8000/docs> — interactive OpenAPI docs
+- <http://localhost:8000/health/live> — liveness
+- <http://localhost:8000/health/ready> — readiness (with DB probe)
+
+Run tests:
+
+```bash
+cd backend
+source .venv/bin/activate
+pytest
+```
+
+### 2. PostgreSQL
+
+The default `DATABASE_URL` in `.env.example` expects:
+
+- host `localhost`, port `5432`
+- user `warden`, password `warden`
+- database `warden`
+
+Create it once (any equivalent works):
+
+```bash
+createuser warden --pwprompt   # set password: warden
+createdb  warden --owner=warden
+```
+
+If Postgres isn't running yet:
+
+```bash
+# Homebrew:
+brew services start postgresql@18
+
+# or ad-hoc:
+pg_ctl -D /opt/homebrew/var/postgresql@18 -l ~/pg.log start
+```
+
+Verify:
+
+```bash
+pg_isready
+psql -U warden -d warden -c 'SELECT 1;'
+```
+
+### 3. Frontend
+
+```bash
+cd frontend
+npm install
+cp .env.local.example .env.local
+npm run dev
+```
+
+Then open <http://localhost:3000>. The landing page fetches
+`/health/ready` from the backend and shows two status tiles: **Backend** and
+**Database**.
+
+## How the frontend and backend communicate
+
+- The frontend reads `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8000`)
+  to know where the backend lives.
+- All calls go through `frontend/lib/api.ts`.
+- The backend runs FastAPI with permissive CORS for origins listed in
+  `CORS_ORIGINS` (default `http://localhost:3000`).
+- Server components fetch with `cache: "no-store"` so status is always live.
+
+## Environment variables
+
+**Backend (`backend/.env`)**
+
+| Var | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | `postgresql+psycopg://warden:warden@localhost:5432/warden` | Postgres connection string (SQLAlchemy + psycopg3) |
+| `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated allowed origins |
+| `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | `` | Razorpay Test Mode (used in a later stage) |
+| `ANTHROPIC_API_KEY` | `` | LLM (used in a later stage) |
+
+**Frontend (`frontend/.env.local`)**
+
+| Var | Default | Purpose |
+|---|---|---|
+| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` | Base URL the browser calls |
+
+## Build stage
+
+**Stage 1 — done:** scaffold, health, DB connection, frontend shell.
+Next: ORM models, seed data, Warden policy engine, Razorpay integration, audit
+chain, judge dashboard.
