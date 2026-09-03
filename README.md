@@ -45,16 +45,19 @@ Full breakdown: [docs/architecture.md](docs/architecture.md).
 backend/
   app/
     api/         HTTP routes (currently: /health/live, /health/ready)
-    models/      SQLAlchemy ORM (Stage 2)
-    schemas/     Pydantic contracts (Stage 2)
-    services/    Business services (catalog, mandates, cart)
+    models/      SQLAlchemy ORM — 8 tables + enums
+    schemas/     Pydantic contracts (added alongside routes)
+    services/    Business services (mandate state machine live; more coming)
     warden/      Deterministic policy engine — the authority
     agents/      AI Buyer + Explainer — proposals only, no financial authority
     payments/    Razorpay adapter — only invoked after ALLOW
-    audit/       Append-only, hash-chained audit log
+    audit/       Append-only, hash-chained audit log (writer + verifier)
     config.py    Settings (pydantic-settings, reads .env)
     db.py        SQLAlchemy engine + session
     main.py      FastAPI app factory
+    seed.py      python -m app.seed loads Priya's D2C Coffee demo data
+  alembic/       Migrations
+  alembic.ini
   tests/         pytest suite
   requirements.txt
   .env.example
@@ -106,6 +109,25 @@ Run tests:
 cd backend
 source .venv/bin/activate
 pytest
+```
+
+### Migrations + seed
+
+```bash
+cd backend
+source .venv/bin/activate
+
+# Apply all migrations against the DB pointed at by DATABASE_URL
+alembic upgrade head
+
+# Load demo data (Priya's D2C Coffee, 4 products, 3 mandates). Idempotent.
+python -m app.seed
+```
+
+The seed script also accepts `--url` and `--create-tables` for ad-hoc SQLite:
+
+```bash
+python -m app.seed --url sqlite:///demo.db --create-tables
 ```
 
 ### 2. PostgreSQL
@@ -182,5 +204,9 @@ Then open <http://localhost:3000>. The landing page fetches
 ## Build stage
 
 **Stage 1 — done:** scaffold, health, DB connection, frontend shell.
-Next: ORM models, seed data, Warden policy engine, Razorpay integration, audit
-chain, judge dashboard.
+**Stage 2 — done:** 8-table ORM model (merchants, mandates, catalog_items,
+carts, actions, decisions, audit_log, razorpay_refs), Alembic initial
+migration, seed data (Priya's D2C Coffee + 4 products + 3 mandates), mandate
+state machine, and hash-chained audit writer.
+Next: Warden policy engine, LLM AI buyer agent, Razorpay Test integration,
+judge dashboard.
