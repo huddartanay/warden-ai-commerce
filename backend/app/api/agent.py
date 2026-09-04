@@ -28,7 +28,13 @@ from app.schemas.agent import (
     SearchRequest,
     SearchResponse,
 )
-from app.warden import Proposal, evaluate_proposal
+from app.models.enums import ActionStatus
+from app.warden import (
+    Proposal,
+    RazorpayError,
+    evaluate_proposal,
+    execute_payment,
+)
 from uuid import uuid4
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -51,8 +57,48 @@ def purchase_intent(body: PurchaseIntentRequest, db: Session = Depends(get_db)) 
         )
     except NoUsableMandateError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+    payment_payload: dict | None = None
+
+    # Auto-execute Razorpay flow only when both:
+    #   - the agent verdict is ALLOW (Warden ALLOWed AND confidence >= threshold)
+    #   - the caller opted in (default True)
+    # BLOCK / STEP_UP intentionally short-circuit: no Razorpay call.
+    if (
+        body.auto_execute_on_allow
+        and run.agent_verdict == DecisionResult.ALLOW
+        and run.warden is not None
+        and run.warden.decision == DecisionResult.ALLOW
+    ):
+        try:
+            pex = execute_payment(db, run.warden.action_id)
+            payment_payload = {
+                "action_id": pex.action_id,
+                "action_status": pex.action_status.value,
+                "order": {
+                    "id": pex.order.id,
+                    "ref_type": pex.order.ref_type,
+                    "razorpay_id": pex.order.razorpay_id,
+                    "status": pex.order.status,
+                } if pex.order else None,
+                "payment_link": {
+                    "id": pex.payment_link.id,
+                    "ref_type": pex.payment_link.ref_type,
+                    "razorpay_id": pex.payment_link.razorpay_id,
+                    "status": pex.payment_link.status,
+                    "short_url": (pex.payment_link.raw_response or {}).get("short_url"),
+                } if pex.payment_link else None,
+                "duplicate": pex.duplicate,
+            }
+        except RazorpayError as e:
+            # Payment service already wrote the failure audit + status.
+            payment_payload = {"error": str(e), "action_id": run.warden.action_id}
+
     db.commit()
-    return PurchaseIntentResponse(**run.to_dict())
+
+    body_dict = run.to_dict()
+    body_dict["payment"] = payment_payload
+    return PurchaseIntentResponse(**body_dict)
 
 
 @router.post("/search", response_model=SearchResponse)

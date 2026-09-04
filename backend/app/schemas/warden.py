@@ -96,6 +96,38 @@ class ActionOut(BaseModel):
     updated_at: datetime
 
 
+class RazorpayRefOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    action_id: str
+    ref_type: str
+    razorpay_id: str
+    status: str | None
+    created_at: datetime
+
+
 class ActionDetail(BaseModel):
     action: ActionOut
     decision: DecisionOut | None
+    razorpay_refs: list[RazorpayRefOut] = []
+
+
+class PaymentExecutionResponse(BaseModel):
+    action_id: str
+    action_status: ActionStatus
+    order: RazorpayRefOut | None
+    payment_link: RazorpayRefOut | None
+    duplicate: bool
+
+
+class PaymentCaptureResponse(BaseModel):
+    action_id: str
+    action_status: ActionStatus
+    payment: RazorpayRefOut
+
+
+class PaymentRefundResponse(BaseModel):
+    action_id: str
+    action_status: ActionStatus
+    refund: RazorpayRefOut

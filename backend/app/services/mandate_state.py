@@ -89,3 +89,25 @@ def apply_successful_action(
     mandate.current_period_spend = _as_decimal(mandate.current_period_spend or 0) + _as_decimal(amount)
     mandate.current_period_transactions = int(mandate.current_period_transactions or 0) + 1
     return refresh_status(mandate, now=now)
+
+
+def roll_back_reservation(
+    mandate: Mandate,
+    *,
+    amount: Decimal,
+    now: datetime | None = None,
+) -> MandateStatus:
+    """
+    Reverse a previously reserved action: decrement spend and transaction
+    counters (clamped at zero). Used when a payment fails after Warden ALLOWed
+    or when a completed payment is refunded.
+    """
+    current_spend = _as_decimal(mandate.current_period_spend or 0)
+    new_spend = current_spend - _as_decimal(amount)
+    if new_spend < 0:
+        new_spend = Decimal("0")
+    mandate.current_period_spend = new_spend
+    mandate.current_period_transactions = max(
+        0, int(mandate.current_period_transactions or 0) - 1
+    )
+    return refresh_status(mandate, now=now)

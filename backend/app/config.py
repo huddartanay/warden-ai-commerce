@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     razorpay_key_id: str = Field(default="", alias="RAZORPAY_KEY_ID")
     razorpay_key_secret: str = Field(default="", alias="RAZORPAY_KEY_SECRET")
+    razorpay_mode: str = Field(default="auto", alias="RAZORPAY_MODE")  # auto|live|mock
 
     # LLM
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")

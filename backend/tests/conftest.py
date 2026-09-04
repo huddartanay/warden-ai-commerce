@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import os
 
-# Force the LLM into deterministic mock mode BEFORE any app import that reads
-# settings. Tests must never hit a real network.
+# Force the LLM and Razorpay into deterministic mock mode BEFORE any app
+# import that reads settings. Tests must never hit a real network.
 os.environ.setdefault("WARDEN_LLM_MODE", "mock")
+os.environ.setdefault("RAZORPAY_MODE", "mock")
 
 import pytest
 from fastapi.testclient import TestClient

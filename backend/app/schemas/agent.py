@@ -18,6 +18,10 @@ class PurchaseIntentRequest(BaseModel):
     customer_id: str = Field(..., min_length=1)
     mandate_id: str | None = None
     idempotency_key: str = Field(..., min_length=1, max_length=64)
+    # Default True: if Warden ALLOWs, immediately create the Razorpay order +
+    # payment link. Set False to demo the two-phase flow (evaluate, then
+    # POST /warden/execute-payment/{action_id}).
+    auto_execute_on_allow: bool = True
 
 
 class PurchaseIntentResponse(BaseModel):
@@ -32,6 +36,9 @@ class PurchaseIntentResponse(BaseModel):
     agent_confidence: float
     agent_verdict: DecisionResult
     explanation: str
+    # Populated only if payment was executed (auto_execute_on_allow=True and
+    # Warden ALLOWed). Contains the razorpay order + payment link references.
+    payment: dict[str, Any] | None = None
 
 
 # ---- /agent/search ---------------------------------------------------------

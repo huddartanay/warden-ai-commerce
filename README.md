@@ -209,9 +209,16 @@ state machine, hash-chained audit writer.
 **Stage 3 — done:** Warden Core policy engine + coordinator + HTTP API. 73
 tests. See [docs/WARDEN_TEST_REPORT.md](docs/WARDEN_TEST_REPORT.md).
 **Stage 4 — done:** AI Buyer Agent + Explainer + demo mode.
-`POST /agent/purchase-intent`, `POST /agent/search`, `POST /agent/build-cart`,
-`POST /agent/explain`. LLM abstraction with `AnthropicLLMClient` (live) and
-`MockLLMClient` (deterministic). `WARDEN_LLM_MODE=auto|live|mock` — offline
-demos work end-to-end without a network. **104 pytest cases green.** Warden
-authorization logic is unchanged. LLM never appears in the decision path.
-Next: Razorpay Test integration, judge dashboard.
+**Stage 5 — done:** Razorpay TEST-MODE integration.
+`app/payments/` is the only package that imports the Razorpay SDK; only
+`app/warden/coordinator.py` may import `app/payments/`. Enforced by
+`test_architectural_invariants.py`.
+Endpoints:
+`POST /warden/execute-payment/{action_id}` (create order + link, idempotent),
+`POST /warden/simulate-capture/{action_id}` (mock/test capture),
+`POST /warden/refund/{action_id}` (rolls back mandate reservation).
+`/agent/purchase-intent` auto-executes payment on Warden ALLOW.
+`RAZORPAY_MODE=auto|live|mock` — offline demos work end-to-end; live client
+refuses `rzp_live_` keys. **134 pytest cases green** including three E2E
+scenarios (ALLOW→order, BLOCK→no razorpay, duplicate→same order).
+Next: judge dashboard.

@@ -35,10 +35,12 @@ def _find_imports(path: Path) -> set[str]:
 # ---- Invariant 1 -----------------------------------------------------------
 
 
-def test_warden_package_never_imports_llm_or_agents():
+def test_warden_package_never_imports_llm_or_razorpay_sdk_directly():
     """
-    Warden Core is the authority. It must be pure Python and DB. It must not
-    reach into the agent package, nor import an LLM SDK, nor call Razorpay.
+    Warden Core is the authority. It must be pure Python + DB + audit +
+    (indirectly, via app.payments) the payment adapter. It must not reach
+    into the agent package, nor import an LLM SDK, nor import the razorpay
+    SDK directly — that lives in app.payments.
     """
     forbidden_prefixes = ("app.agents", "anthropic", "openai", "razorpay")
     offenders: list[tuple[str, str]] = []
@@ -88,4 +90,30 @@ def test_only_the_coordinator_persists_decisions():
     assert not offenders, (
         "Files outside app/warden/coordinator.py mutate decisions/mandate: "
         + repr(offenders)
+    )
+
+
+# ---- Invariant 4 -----------------------------------------------------------
+
+
+def test_only_warden_may_import_payments():
+    """
+    The payment layer (app.payments) is the ONLY place that talks to Razorpay.
+    Only app.warden.* may import it. In particular the API layer, the agent,
+    services, and audit must NOT import app.payments.
+
+    This preserves the Stage 5 rule: 'the Warden remains the only component
+    allowed to invoke financial tools'.
+    """
+    allowed_dirs = {APP_ROOT / "warden", APP_ROOT / "payments"}
+    offenders: list[tuple[str, str]] = []
+    for path in sorted(APP_ROOT.rglob("*.py")):
+        # Skip files that are inside allowed dirs.
+        if any(str(path).startswith(str(d) + "/") or path == d for d in allowed_dirs):
+            continue
+        for imp in _find_imports(path):
+            if imp == "app.payments" or imp.startswith("app.payments."):
+                offenders.append((str(path.relative_to(APP_ROOT.parent)), imp))
+    assert not offenders, (
+        "Only app.warden.* may import app.payments; found: " + repr(offenders)
     )

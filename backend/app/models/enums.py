@@ -25,6 +25,7 @@ class ActionStatus(str, Enum):
     PAYMENT_COMPLETED = "PAYMENT_COMPLETED"
     PAYMENT_FAILED = "PAYMENT_FAILED"
     PENDING_UNRESOLVED = "PENDING_UNRESOLVED"
+    REFUNDED = "REFUNDED"
 
 
 class DecisionResult(str, Enum):

@@ -35,6 +35,20 @@ from app.models import (
     ReasonCode,
 )
 from app.models.enums import DecisionResult
+# The payment layer lives under app.payments; per the architectural invariant,
+# ONLY this coordinator may import it. Exception types are re-exported so the
+# API layer (which handles HTTP mapping) doesn't need to reach into payments.
+from app.payments import (
+    InvalidPaymentStateError as PaymentInvalidStateError,
+    PaymentActionNotFoundError as PaymentNotFoundError,
+    PaymentCapture,
+    PaymentExecution,
+    PaymentRefund,
+    RazorpayError,
+    execute_payment as _execute_payment,
+    refund_action as _refund_action,
+    simulate_capture as _simulate_capture,
+)
 from app.services.mandate_state import (
     apply_successful_action,
     recompute_status,
@@ -317,6 +331,42 @@ def revoke_mandate(
         timestamp=when,
     )
     return mandate
+
+
+# ---- Payment orchestration (thin passthrough to app.payments) --------------
+
+
+def execute_payment(
+    session: Session,
+    action_id: str,
+    *,
+    now: datetime | None = None,
+) -> PaymentExecution:
+    """
+    Post-authorization payment execution. The only public path from Warden's
+    world into the Razorpay adapter. Defensive: the payment service itself
+    verifies action state, but calling from anywhere but Warden is banned by
+    the architectural-invariant tests.
+    """
+    return _execute_payment(session, action_id, now=now)
+
+
+def simulate_capture(
+    session: Session,
+    action_id: str,
+    *,
+    now: datetime | None = None,
+) -> PaymentCapture:
+    return _simulate_capture(session, action_id, now=now)
+
+
+def refund_action(
+    session: Session,
+    action_id: str,
+    *,
+    now: datetime | None = None,
+) -> PaymentRefund:
+    return _refund_action(session, action_id, now=now)
 
 
 # ---- Errors -----------------------------------------------------------------
