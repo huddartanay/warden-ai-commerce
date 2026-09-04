@@ -209,6 +209,32 @@ state machine, hash-chained audit writer.
 **Stage 3 — done:** Warden Core policy engine + coordinator + HTTP API. 73
 tests. See [docs/WARDEN_TEST_REPORT.md](docs/WARDEN_TEST_REPORT.md).
 **Stage 4 — done:** AI Buyer Agent + Explainer + demo mode.
+**Stage 7 — done:** Concurrency, agent identity, adversarial resilience.
+Four features, four commits:
+(1) Atomic spend-cap enforcement via `mandate.version` + optimistic CAS
+in `coordinator.evaluate_proposal`; bounded 3-retry loop; new
+`CONCURRENT_UPDATE` reason.
+`tests/test_concurrency.py::test_concurrent_proposals_cannot_double_spend_cap`
+runs N=8 threads against a mandate that can only satisfy one proposal.
+(2) Agent identity + HMAC signing. `app/warden/auth.py` (pure) verifies
+`X-Agent-Id` + `X-Agent-Signature` before any policy check runs;
+`AgentCredential` scoped per mandate; auth failure = BLOCK
+`AGENT_AUTH_FAILED` + `AGENT_AUTH_FAILED` audit event with the engine
+never invoked. Extended architectural invariant
+`test_warden_auth_module_is_pure` bans LLM/razorpay/network imports in
+`warden/auth.py`.
+(3) Structuring detection via `mandate.rolling_window_seconds` +
+`mandate.rolling_window_max_amount`; new pure policy
+`check_rolling_window_spend` ordered before `check_amount_within_cap`;
+new `CUMULATIVE_SPEND_EXCEEDED` reason with a judge-dashboard-ready
+detail string. `test_demo_agent_structuring_attack_detected` proves the
+6th of 6 ₹1000 proposals within a 90s window trips it.
+(4) `DEMO_MODE`-gated `POST /audit/demo/corrupt/{seq}` +
+`POST /audit/demo/restore` so a presenter can show live tamper detection
+via `GET /audit/verify`. Refuses (403) unless the env flag is set.
+`test_audit_verify_detects_tampering` (from Stage 6) + 3 new tamper
+tests cover the loop. **166 pytest cases green.**
+
 **Stage 6 — done:** Audit + failure-recovery layer.
 Central event catalog (`app/audit/events.py`) with 19 named event types;
 every stage now emits its full set (`MANDATE_CREATED`, `INTENT_RECEIVED`,

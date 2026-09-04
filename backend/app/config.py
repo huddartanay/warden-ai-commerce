@@ -34,6 +34,12 @@ class Settings(BaseSettings):
         default=0.7, alias="AGENT_CONFIDENCE_THRESHOLD"
     )
 
+    # Global demo-mode kill switch. When TRUE the /audit/demo/* routes are
+    # exposed so a presenter can show live tamper detection. In production
+    # this MUST be false — leaving it on would let anyone with API access
+    # rewrite the audit log.
+    demo_mode: bool = Field(default=False, alias="DEMO_MODE")
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

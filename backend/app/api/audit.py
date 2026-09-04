@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.audit import GENESIS_HASH, compute_hash
+from app.config import get_settings
 from app.db import get_db
 from app.models import Action, AuditLog, ResolutionStatus
 from app.schemas.audit import (
@@ -139,6 +140,76 @@ def resolution_queue_endpoint(
         count=len(rows),
         entries=[ResolutionOut.model_validate(r) for r in rows],
     )
+
+
+# ---- DEMO_MODE: tamper endpoints (gated) ----------------------------------
+#
+# These endpoints deliberately corrupt one audit row so a presenter can
+# show live tamper detection by GET /audit/verify. Because they mutate an
+# append-only log, they refuse to run unless DEMO_MODE=true is set in the
+# environment.
+#
+# Original payloads are stashed in this module-level dict so a subsequent
+# /audit/demo/restore call can undo the corruption. Not persistent across
+# restarts — that's fine for a demo.
+_DEMO_CORRUPTION_BACKUPS: dict[int, dict[str, object]] = {}
+
+
+def _require_demo_mode() -> None:
+    if not get_settings().demo_mode:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "DEMO_MODE is not enabled. The audit-tamper endpoints are for "
+                "presentations only and refuse to run in normal operation."
+            ),
+        )
+
+
+@router.post("/demo/corrupt/{seq}")
+def demo_corrupt_endpoint(seq: int, db: Session = Depends(get_db)) -> dict:
+    """
+    DEMO ONLY: overwrite one audit row's event_data with a tamper marker,
+    leaving its stored hashes untouched. The next /audit/verify call must
+    then detect the mismatch.
+    """
+    _require_demo_mode()
+    from app.models import AuditLog
+
+    row = db.get(AuditLog, seq)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Audit row seq={seq} not found.",
+        )
+    _DEMO_CORRUPTION_BACKUPS[seq] = row.event_data
+    row.event_data = {"_demo_corruption": True, "note": "audit row deliberately mutated for demo"}
+    db.commit()
+    return {
+        "corrupted_seq": seq,
+        "event_type": row.event_type,
+        "message": (
+            "Audit row rewritten. Call GET /audit/verify to see the chain "
+            "detect the tamper, then POST /audit/demo/restore to revert."
+        ),
+    }
+
+
+@router.post("/demo/restore")
+def demo_restore_endpoint(db: Session = Depends(get_db)) -> dict:
+    """DEMO ONLY: undo every /audit/demo/corrupt performed this session."""
+    _require_demo_mode()
+    from app.models import AuditLog
+
+    restored = []
+    for seq, original in list(_DEMO_CORRUPTION_BACKUPS.items()):
+        row = db.get(AuditLog, seq)
+        if row is not None:
+            row.event_data = original
+            restored.append(seq)
+        _DEMO_CORRUPTION_BACKUPS.pop(seq, None)
+    db.commit()
+    return {"restored_seqs": restored}
 
 
 @router.post("/resolve/{action_id}", response_model=ResolveResponse)
