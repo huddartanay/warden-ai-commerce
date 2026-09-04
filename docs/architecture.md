@@ -69,6 +69,48 @@ The two hard rules:
 - `GET /health/ready` — reports DB reachability. Returns `status: "degraded"` when
   DB is down, but still `HTTP 200` so operators see the check payload.
 
+## Concurrency: atomic spend-cap enforcement (Stage 7)
+
+Two concurrent proposals against the same mandate would otherwise both read
+`remaining = 500`, both pass `amount_within_cap`, and both get ALLOWed — a
+real race that would violate the cap. Warden closes this with **optimistic
+concurrency**, not row locking, so it works identically on Postgres and on
+the SQLite-backed test harness.
+
+**Mechanism**
+
+1. `mandate.version` is an integer column, monotonically increasing.
+2. `evaluate_proposal` reads the mandate + its `version`, runs the pure
+   engine, and — only for `ALLOW` — performs a single UPDATE:
+   ```sql
+   UPDATE mandates
+      SET current_period_spend = ?, current_period_transactions = ?,
+          status = ?, version = version + 1
+    WHERE id = ? AND version = <observed_version>
+   ```
+   If `rowcount != 1`, some other proposal moved the row first.
+3. On CAS conflict, the coordinator expires the ORM object, re-reads the
+   mandate, and re-runs the engine (up to 3 retries). Because the mandate's
+   spend is now higher, the engine will typically flip to
+   `BLOCK CAP_EXCEEDED` naturally, without special-casing.
+4. If all 3 retries lose their CAS, the outcome is
+   `BLOCK CONCURRENT_UPDATE` — a distinct reason so a judge dashboard can
+   distinguish "you hit contention" from "you hit the cap".
+
+**Why optimistic over pessimistic (`SELECT FOR UPDATE`)?**
+
+- SQLite has no meaningful `FOR UPDATE`; the test suite would have to skip
+  the invariant entirely.
+- Optimistic CAS keeps write transactions short — no held locks, no
+  deadlock class to reason about.
+- Contention on a single mandate is expected to be low (one customer, one
+  agent). The retry ceiling is 3, which is more than enough for the
+  observed contention pattern, and the terminal BLOCK is safe.
+
+**Enforcement test:** `tests/test_concurrency.py::test_concurrent_proposals_cannot_double_spend_cap`
+runs N=8 threads against a mandate that can only satisfy one proposal and
+asserts exactly one ALLOW, N-1 BLOCKs, zero STEP_UPs.
+
 ## Stages
 
 - **Stage 1 (this stage):** scaffold, health, DB connection, frontend shell.

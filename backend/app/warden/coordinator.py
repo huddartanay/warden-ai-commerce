@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.audit import events
@@ -140,6 +140,76 @@ def _status_from_decision(result: DecisionResult) -> ActionStatus:
     }[result]
 
 
+_MAX_CAS_RETRIES = 3
+
+
+def _try_reserve_cas(
+    session: Session,
+    *,
+    mandate: Mandate,
+    amount: Decimal,
+    now: datetime | None = None,
+) -> bool:
+    """
+    Atomic compare-and-swap: reserve `amount` against `mandate` only if the
+    mandate's version hasn't moved since we read it. Returns True on success.
+
+    All three counters + status + version move in a SINGLE UPDATE, so a
+    concurrent reader can never see spend/tx incremented but status stale.
+
+    On success:
+      - the in-memory `mandate` object is expired so the next read reflects
+        the new values.
+    On failure (rowcount != 1):
+      - nothing was written; the caller must re-read the mandate and re-run
+        the policy chain because another proposal may have consumed budget
+        in the meantime.
+    """
+    observed_version = int(mandate.version or 0)
+    new_spend = Decimal(mandate.current_period_spend or 0) + Decimal(amount)
+    new_tx = int(mandate.current_period_transactions or 0) + 1
+
+    # Compute what the status must be given the NEW counters, so status
+    # transitions atomically alongside the spend/tx bump. We build a
+    # scratch object rather than mutating the real one before the UPDATE.
+    scratch = Mandate(
+        id=mandate.id,
+        customer_id=mandate.customer_id,
+        merchant_id=mandate.merchant_id,
+        max_amount=mandate.max_amount,
+        currency=mandate.currency,
+        allowed_categories=mandate.allowed_categories,
+        transaction_limit=mandate.transaction_limit,
+        validity_start=mandate.validity_start,
+        validity_end=mandate.validity_end,
+        status=mandate.status,
+        current_period_spend=new_spend,
+        current_period_transactions=new_tx,
+        step_up_over_amount=mandate.step_up_over_amount,
+        version=observed_version + 1,
+        created_at=mandate.created_at,
+        updated_at=now or _now_utc(),
+    )
+    new_status = recompute_status(scratch, now=now)
+
+    result = session.execute(
+        update(Mandate)
+        .where(Mandate.id == mandate.id, Mandate.version == observed_version)
+        .values(
+            current_period_spend=new_spend,
+            current_period_transactions=new_tx,
+            status=new_status,
+            version=Mandate.version + 1,
+            updated_at=now or _now_utc(),
+        )
+    )
+    if result.rowcount != 1:
+        return False
+
+    session.expire(mandate)
+    return True
+
+
 def _serialize_checks(checks: list[CheckResult]) -> list[dict]:
     return [
         {
@@ -206,18 +276,57 @@ def evaluate_proposal(
             duplicate=True,
         )
 
-    # Load the mandate. Missing mandate is still an outcome we want recorded
-    # so the front-end and audit see the attempt.
-    mandate = session.get(Mandate, proposal.mandate_id)
+    # Decide + reserve loop. On an ALLOW we do an atomic compare-and-swap
+    # against the mandate's `version`; if a concurrent proposal has moved it,
+    # we re-read the mandate and re-run the engine. Bounded retries so a
+    # pathological hot mandate can't loop forever.
+    #
+    # We DO NOT persist Action / Decision / audit inside the loop — those go
+    # in exactly once with whatever decision the last iteration produced.
+    mandate: Mandate | None = None
+    engine_result: EngineDecision | None = None
+    cas_conflicted = False
 
-    # Refresh the mandate's computed status before evaluating (so a validity
-    # window that has silently elapsed is caught even without a background job).
-    if mandate is not None:
-        computed = recompute_status(mandate, now=when)
-        if computed != mandate.status:
-            mandate.status = computed
+    for _attempt in range(_MAX_CAS_RETRIES):
+        # Ensure we read the freshest row on every retry (the previous iteration
+        # may have called session.expire on it).
+        session.expire_all()
+        mandate = session.get(Mandate, proposal.mandate_id)
 
-    engine_result: EngineDecision = evaluate(mandate, proposal, now=when, config=config)
+        # Refresh the mandate's computed status before evaluating (so a validity
+        # window that has silently elapsed is caught without a background job).
+        if mandate is not None:
+            computed = recompute_status(mandate, now=when)
+            if computed != mandate.status:
+                mandate.status = computed
+
+        engine_result = evaluate(mandate, proposal, now=when, config=config)
+
+        if engine_result.result != DecisionResult.ALLOW or mandate is None:
+            # BLOCK / STEP_UP don't touch the reservation counter; no CAS needed.
+            break
+
+        if _try_reserve_cas(
+            session, mandate=mandate, amount=Decimal(proposal.amount), now=when
+        ):
+            # Reservation persisted atomically. Done.
+            break
+
+        # CAS lost — someone else moved the mandate. Loop and re-decide.
+        cas_conflicted = True
+
+    else:
+        # Exhausted retries. Force a BLOCK so nothing double-spends.
+        engine_result = EngineDecision(
+            result=DecisionResult.BLOCK,
+            reason_code=ReasonCode.CONCURRENT_UPDATE,
+            explanation=(
+                "Mandate contention: could not atomically reserve the requested "
+                "amount after "
+                f"{_MAX_CAS_RETRIES} retries. Try again."
+            ),
+            checks=list(engine_result.checks) if engine_result is not None else [],
+        )
 
     action_id = proposal.action_id or _new_id("act")
 
@@ -249,9 +358,10 @@ def evaluate_proposal(
     session.add(decision)
     session.flush()
 
-    # Reserve budget on ALLOW. STEP_UP defers reservation to approval time.
-    if engine_result.result == DecisionResult.ALLOW and mandate is not None:
-        apply_successful_action(mandate, amount=Decimal(proposal.amount), now=when)
+    # Reservation, if any, already happened atomically inside the CAS loop
+    # above. STEP_UP still defers reservation to /warden/approve — that path
+    # continues to call apply_successful_action directly (single-writer;
+    # human-triggered, no meaningful concurrency).
 
     # Umbrella audit event — every decision.
     append_event(

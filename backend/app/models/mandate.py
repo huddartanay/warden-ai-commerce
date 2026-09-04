@@ -70,6 +70,13 @@ class Mandate(Base):
         Numeric(14, 2), nullable=True
     )
 
+    # Optimistic-concurrency version. Incremented atomically on every
+    # spend/tx counter mutation via compare-and-swap in the coordinator;
+    # concurrent proposals racing for the same remaining cap CANNOT both win.
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )
