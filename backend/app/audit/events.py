@@ -45,6 +45,7 @@ REFUND_COMPLETED: Final[str] = "REFUND_COMPLETED"
 
 RESOLUTION_APPLIED: Final[str] = "RESOLUTION_APPLIED"
 SYSTEM_ERROR: Final[str] = "SYSTEM_ERROR"
+AGENT_AUTH_FAILED: Final[str] = "AGENT_AUTH_FAILED"
 
 
 ALL_EVENT_TYPES: Final[frozenset[str]] = frozenset(
@@ -68,5 +69,6 @@ ALL_EVENT_TYPES: Final[frozenset[str]] = frozenset(
         REFUND_COMPLETED,
         RESOLUTION_APPLIED,
         SYSTEM_ERROR,
+        AGENT_AUTH_FAILED,
     }
 )

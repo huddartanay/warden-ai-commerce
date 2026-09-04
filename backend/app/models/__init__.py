@@ -8,6 +8,7 @@ schema.
 """
 
 from app.models.action import Action
+from app.models.agent_credential import AgentCredential
 from app.models.audit import AuditLog
 from app.models.cart import Cart
 from app.models.catalog_item import CatalogItem
@@ -29,6 +30,7 @@ __all__ = [
     "Action",
     "ActionStatus",
     "ActionType",
+    "AgentCredential",
     "AuditLog",
     "Cart",
     "CatalogItem",

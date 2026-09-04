@@ -96,6 +96,31 @@ def test_only_the_coordinator_persists_decisions():
 # ---- Invariant 4 -----------------------------------------------------------
 
 
+def test_warden_auth_module_is_pure():
+    """
+    app/warden/auth.py performs agent signature verification. It must be
+    pure Python + ORM reads via the session it is passed. It must NOT
+    import an LLM SDK, the razorpay SDK, the agents package, or the
+    payments package, and it must not open network sockets on its own.
+    """
+    forbidden_prefixes = (
+        "app.agents",
+        "app.payments",
+        "anthropic",
+        "openai",
+        "razorpay",
+        "urllib.request",
+        "requests",
+        "httpx",
+        "socket",
+    )
+    path = APP_ROOT / "warden" / "auth.py"
+    for imp in _find_imports(path):
+        assert not any(
+            imp == p or imp.startswith(p + ".") for p in forbidden_prefixes
+        ), f"warden/auth.py imports forbidden module {imp!r}"
+
+
 def test_only_warden_may_import_payments():
     """
     The payment layer (app.payments) is the ONLY place that talks to Razorpay.

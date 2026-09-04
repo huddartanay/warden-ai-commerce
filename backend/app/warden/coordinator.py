@@ -55,6 +55,10 @@ from app.services.mandate_state import (
     recompute_status,
     revoke as mandate_revoke,
 )
+from app.warden.auth import (
+    AuthResult,
+    verify_agent_authorized,
+)
 from app.warden.engine import EngineDecision, evaluate
 from app.warden.policies import CheckResult, Proposal, WardenConfig
 
@@ -226,15 +230,140 @@ def _serialize_checks(checks: list[CheckResult]) -> list[dict]:
 # ---- Main entry points -------------------------------------------------------
 
 
+def _proposal_signing_payload(proposal: Proposal) -> dict:
+    """The stable set of fields covered by an agent's HMAC signature."""
+    return {
+        "mandate_id": proposal.mandate_id,
+        "customer_id": proposal.customer_id,
+        "merchant_id": proposal.merchant_id,
+        "cart_id": proposal.cart_id,
+        "amount": str(Decimal(proposal.amount)),
+        "currency": proposal.currency,
+        "category": proposal.category,
+        "quoted_price": str(Decimal(proposal.quoted_price)),
+        "current_price": str(Decimal(proposal.current_price)),
+        "idempotency_key": proposal.idempotency_key,
+    }
+
+
+def _block_agent_auth_failure(
+    session: Session,
+    *,
+    proposal: Proposal,
+    agent_id: str | None,
+    auth: AuthResult,
+    when: datetime,
+) -> WardenOutcome:
+    """
+    A signed proposal failed verification. Persist a BLOCKED Action + Decision
+    + audit trail, then return BLOCK AGENT_AUTH_FAILED. The policy engine is
+    never invoked.
+    """
+    action_id = proposal.action_id or _new_id("act")
+    explanation = (
+        f"Agent authentication failed: {auth.reason}. "
+        "Rejected before Warden policy checks ran."
+    )
+    action = Action(
+        id=action_id,
+        mandate_id=proposal.mandate_id,
+        cart_id=proposal.cart_id,
+        action_type=ActionType.PAYMENT,
+        amount=Decimal(proposal.amount),
+        currency=proposal.currency,
+        idempotency_key=proposal.idempotency_key,
+        status=ActionStatus.BLOCKED,
+        created_at=when,
+        updated_at=when,
+    )
+    session.add(action)
+    session.flush()
+
+    decision = Decision(
+        id=_new_id("dec"),
+        action_id=action_id,
+        result=DecisionResult.BLOCK,
+        reason_code=ReasonCode.AGENT_AUTH_FAILED,
+        explanation=explanation,
+        created_at=when,
+    )
+    session.add(decision)
+    session.flush()
+
+    append_event(
+        session,
+        event_type=events.AGENT_AUTH_FAILED,
+        action_id=action_id,
+        event_data={
+            "action_id": action_id,
+            "mandate_id": proposal.mandate_id,
+            "agent_id": agent_id,
+            "reason": auth.reason,
+            "idempotency_key": proposal.idempotency_key,
+        },
+        timestamp=when,
+    )
+    append_event(
+        session,
+        event_type=events.BLOCKED,
+        action_id=action_id,
+        event_data={
+            "action_id": action_id,
+            "reason_code": ReasonCode.AGENT_AUTH_FAILED.value,
+            "explanation": explanation,
+        },
+        timestamp=when,
+    )
+    return WardenOutcome(
+        action_id=action_id,
+        decision=DecisionResult.BLOCK,
+        reason_code=ReasonCode.AGENT_AUTH_FAILED,
+        explanation=explanation,
+        checks=[],
+        duplicate=False,
+    )
+
+
 def evaluate_proposal(
     session: Session,
     proposal: Proposal,
     *,
     now: datetime | None = None,
     config: WardenConfig | None = None,
+    agent_id: str | None = None,
+    signature: str | None = None,
 ) -> WardenOutcome:
-    """Run Warden against a proposal, persist everything, return an outcome."""
+    """
+    Run Warden against a proposal, persist everything, return an outcome.
+
+    Signing contract:
+      - If either `agent_id` or `signature` is provided, BOTH are required
+        and the signature is verified BEFORE the policy engine runs.
+        A verification failure returns BLOCK AGENT_AUTH_FAILED and never
+        reaches the engine, matching the Stage 7 spec.
+      - If neither is provided this is treated as a system/direct call
+        (used by tests and admin flows). Existing pre-Stage-7 callers
+        remain source-compatible.
+    """
     when = now or _now_utc()
+
+    # ---- Stage 7 auth gate — before ANY policy work ----
+    if agent_id is not None or signature is not None:
+        auth = verify_agent_authorized(
+            session,
+            agent_id=agent_id,
+            signature_hex=signature,
+            payload=_proposal_signing_payload(proposal),
+            proposal_mandate_id=proposal.mandate_id,
+        )
+        if not auth.ok:
+            return _block_agent_auth_failure(
+                session,
+                proposal=proposal,
+                agent_id=agent_id,
+                auth=auth,
+                when=when,
+            )
 
     # (Spec check 11) Idempotency short-circuit — same key always maps to the
     # same decision. No new action, no new decision row. We DO emit a

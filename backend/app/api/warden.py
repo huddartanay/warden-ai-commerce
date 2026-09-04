@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -55,9 +55,19 @@ def _to_proposal(body: EvaluateRequest) -> Proposal:
 
 
 @router.post("/evaluate", response_model=DecisionResponse)
-def evaluate_endpoint(body: EvaluateRequest, db: Session = Depends(get_db)) -> DecisionResponse:
+def evaluate_endpoint(
+    body: EvaluateRequest,
+    db: Session = Depends(get_db),
+    x_agent_id: str | None = Header(default=None, alias="X-Agent-Id"),
+    x_agent_signature: str | None = Header(default=None, alias="X-Agent-Signature"),
+) -> DecisionResponse:
     proposal = _to_proposal(body)
-    outcome = evaluate_proposal(db, proposal)
+    outcome = evaluate_proposal(
+        db,
+        proposal,
+        agent_id=x_agent_id,
+        signature=x_agent_signature,
+    )
     db.commit()
 
     return DecisionResponse(
