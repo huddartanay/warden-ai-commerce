@@ -51,3 +51,20 @@ class ReasonCode(str, Enum):
 
     # STEP_UP reasons
     APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
+
+
+class ResolutionStatus(str, Enum):
+    """
+    Human-facing status of an action in the resolution queue.
+
+      PENDING_UNRESOLVED — a payment/refund op had an uncertain outcome; a
+                          human must reconcile (may confirm success or accept
+                          failure with rollback).
+      REQUIRES_HUMAN     — Warden returned STEP_UP; a human must approve or
+                          reject before Razorpay is touched.
+      RESOLVED           — a human acted on this action.
+    """
+
+    PENDING_UNRESOLVED = "PENDING_UNRESOLVED"
+    REQUIRES_HUMAN = "REQUIRES_HUMAN"
+    RESOLVED = "RESOLVED"

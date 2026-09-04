@@ -19,6 +19,7 @@ from app.warden.coordinator import (
     evaluate_proposal,
     execute_payment,
     refund_action,
+    resolve_pending_action,
     revoke_mandate,
     simulate_capture,
 )
@@ -43,6 +44,7 @@ __all__ = [
     "evaluate_proposal",
     "execute_payment",
     "refund_action",
+    "resolve_pending_action",
     "revoke_mandate",
     "simulate_capture",
 ]

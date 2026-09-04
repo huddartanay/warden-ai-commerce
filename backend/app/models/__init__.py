@@ -18,10 +18,12 @@ from app.models.enums import (
     DecisionResult,
     MandateStatus,
     ReasonCode,
+    ResolutionStatus,
 )
 from app.models.mandate import Mandate
 from app.models.merchant import Merchant
 from app.models.razorpay_ref import RazorpayRef
+from app.models.resolution import Resolution
 
 __all__ = [
     "Action",
@@ -37,4 +39,6 @@ __all__ = [
     "Merchant",
     "RazorpayRef",
     "ReasonCode",
+    "Resolution",
+    "ResolutionStatus",
 ]

@@ -26,6 +26,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.audit import events
 from app.audit.service import append_event
 from app.models import Action, ActionStatus, Mandate, RazorpayRef
 from app.payments.client import (
@@ -179,7 +180,7 @@ def execute_payment(
 
     append_event(
         session,
-        event_type="ORDER_CREATED",
+        event_type=events.PAYMENT_CREATED,
         action_id=action.id,
         event_data={
             "action_id": action.id,
@@ -216,7 +217,7 @@ def execute_payment(
         session.flush()
         append_event(
             session,
-            event_type="PAYMENT_LINK_CREATED",
+            event_type=events.PAYMENT_LINK_CREATED,
             action_id=action.id,
             event_data={
                 "action_id": action.id,
@@ -229,7 +230,7 @@ def execute_payment(
         # We still have a valid order; log and continue.
         append_event(
             session,
-            event_type="PAYMENT_LINK_FAILED",
+            event_type=events.PAYMENT_LINK_FAILED,
             action_id=action.id,
             event_data={
                 "action_id": action.id,
@@ -323,7 +324,7 @@ def simulate_capture(
 
     append_event(
         session,
-        event_type="PAYMENT_CAPTURED",
+        event_type=events.PAYMENT_COMPLETED,
         action_id=action.id,
         event_data={
             "action_id": action.id,
@@ -372,6 +373,21 @@ def refund_action(
     rz = razorpay or get_razorpay_client()
     amount_paise = rupees_to_paise(action.amount)
 
+    # Record the intent to refund BEFORE calling Razorpay. That way an audit
+    # reader can distinguish "we tried" from "it succeeded" if the call
+    # never returns.
+    append_event(
+        session,
+        event_type=events.REFUND_REQUESTED,
+        action_id=action.id,
+        event_data={
+            "action_id": action.id,
+            "razorpay_payment_id": payment_ref.razorpay_id,
+            "amount_paise": amount_paise,
+        },
+        timestamp=when,
+    )
+
     try:
         refund_resp = rz.refund_payment(
             payment_ref.razorpay_id,
@@ -408,7 +424,7 @@ def refund_action(
 
     append_event(
         session,
-        event_type="REFUND_COMPLETED",
+        event_type=events.REFUND_COMPLETED,
         action_id=action.id,
         event_data={
             "action_id": action.id,
@@ -472,7 +488,7 @@ def _handle_payment_write_failure(
 
     append_event(
         session,
-        event_type="PAYMENT_FAILED",
+        event_type=events.PAYMENT_FAILED,
         action_id=action.id,
         event_data={
             "action_id": action.id,
@@ -494,13 +510,14 @@ def _mark_pending_unresolved(
 ) -> None:
     """
     A payment operation whose outcome is UNCERTAIN (capture / refund) failed.
-    We don't roll back the reservation — a human must reconcile. Audit logs it.
+    We don't roll back the reservation — a human must reconcile. Audit logs
+    it and enqueues the action for human resolution.
     """
     action.status = ActionStatus.PENDING_UNRESOLVED
     action.updated_at = when
     append_event(
         session,
-        event_type="PAYMENT_PENDING_UNRESOLVED",
+        event_type=events.PAYMENT_PENDING_UNRESOLVED,
         action_id=action.id,
         event_data={
             "action_id": action.id,
@@ -508,4 +525,15 @@ def _mark_pending_unresolved(
             "error": str(error),
         },
         timestamp=when,
+    )
+    # Enqueue for human review.
+    from app.models.enums import ResolutionStatus
+    from app.services.resolution import upsert_resolution
+
+    upsert_resolution(
+        session,
+        action_id=action.id,
+        status=ResolutionStatus.PENDING_UNRESOLVED,
+        note=f"{step} failed with uncertain outcome: {error}",
+        when=when,
     )

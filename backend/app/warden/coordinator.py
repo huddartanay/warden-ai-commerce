@@ -24,6 +24,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.audit import events
 from app.audit.service import append_event
 from app.models import (
     Action,
@@ -166,10 +167,27 @@ def evaluate_proposal(
     when = now or _now_utc()
 
     # (Spec check 11) Idempotency short-circuit — same key always maps to the
-    # same decision. No new action, no new audit event.
+    # same decision. No new action, no new decision row. We DO emit a
+    # DUPLICATE_DETECTED audit event so the trail records the repeat attempt.
     existing = _load_action_by_idempotency_key(session, proposal.idempotency_key)
     if existing is not None:
         existing_decision = _decision_for_action(session, existing.id)
+        append_event(
+            session,
+            event_type=events.DUPLICATE_DETECTED,
+            action_id=existing.id,
+            event_data={
+                "action_id": existing.id,
+                "idempotency_key": proposal.idempotency_key,
+                "original_decision": (
+                    existing_decision.result.value if existing_decision else None
+                ),
+                "original_reason": (
+                    existing_decision.reason_code.value if existing_decision else None
+                ),
+            },
+            timestamp=when,
+        )
         if existing_decision is None:
             # Shouldn't happen, but be defensive: treat as system error.
             return WardenOutcome(
@@ -235,10 +253,10 @@ def evaluate_proposal(
     if engine_result.result == DecisionResult.ALLOW and mandate is not None:
         apply_successful_action(mandate, amount=Decimal(proposal.amount), now=when)
 
-    # Audit event.
+    # Umbrella audit event — every decision.
     append_event(
         session,
-        event_type="WARDEN_EVALUATED",
+        event_type=events.WARDEN_EVALUATED,
         action_id=action_id,
         event_data={
             "action_id": action_id,
@@ -259,6 +277,42 @@ def evaluate_proposal(
         },
         timestamp=when,
     )
+
+    # Narrow follow-up events + resolution-queue plumbing for the UI.
+    if engine_result.result == DecisionResult.BLOCK:
+        append_event(
+            session,
+            event_type=events.BLOCKED,
+            action_id=action_id,
+            event_data={
+                "action_id": action_id,
+                "reason_code": engine_result.reason_code.value,
+                "explanation": engine_result.explanation,
+            },
+            timestamp=when,
+        )
+    elif engine_result.result == DecisionResult.STEP_UP:
+        append_event(
+            session,
+            event_type=events.STEP_UP_REQUESTED,
+            action_id=action_id,
+            event_data={
+                "action_id": action_id,
+                "reason_code": engine_result.reason_code.value,
+                "explanation": engine_result.explanation,
+            },
+            timestamp=when,
+        )
+        # Auto-enqueue for human review.
+        from app.services.resolution import upsert_resolution
+        from app.models.enums import ResolutionStatus
+        upsert_resolution(
+            session,
+            action_id=action_id,
+            status=ResolutionStatus.REQUIRES_HUMAN,
+            note="Warden STEP_UP: awaiting human approval.",
+            when=when,
+        )
 
     return WardenOutcome(
         action_id=action_id,
@@ -296,13 +350,105 @@ def approve_step_up(
 
     append_event(
         session,
-        event_type="HUMAN_APPROVED",
+        event_type=events.HUMAN_APPROVED,
         action_id=action.id,
         event_data={
             "action_id": action.id,
             "mandate_id": mandate.id,
             "amount": str(Decimal(action.amount)),
             "currency": action.currency,
+        },
+        timestamp=when,
+    )
+    # Clear the REQUIRES_HUMAN entry (if any).
+    from app.services.resolution import mark_resolved
+    from app.models.enums import ResolutionStatus
+    mark_resolved(
+        session,
+        action_id=action.id,
+        note="Human approved via /warden/approve.",
+        when=when,
+    )
+    return action
+
+
+def resolve_pending_action(
+    session: Session,
+    action_id: str,
+    *,
+    new_status: ActionStatus | None,
+    note: str,
+    resolved_by: str = "human",
+    now: datetime | None = None,
+) -> Action:
+    """
+    Human-driven resolution of an action stuck in PENDING_UNRESOLVED.
+
+    Legal transitions:
+      PENDING_UNRESOLVED -> PAYMENT_COMPLETED  (human confirmed the payment
+                             went through out-of-band; keep the reservation)
+      PENDING_UNRESOLVED -> PAYMENT_FAILED     (human confirmed the payment
+                             did NOT go through; roll back the reservation)
+      PENDING_UNRESOLVED -> REFUNDED           (settled and refunded; roll
+                             back the reservation)
+
+    If `new_status` is None, the resolution row is marked RESOLVED but the
+    action's own status is left as-is (useful for step-up rejections).
+    """
+    from app.audit import events
+    from app.audit.service import append_event
+    from app.models import Mandate
+    from app.services.mandate_state import roll_back_reservation
+    from app.services.resolution import mark_resolved
+
+    when = now or _now_utc()
+    action = session.get(Action, action_id)
+    if action is None:
+        raise ActionNotFoundError(action_id)
+
+    ROLLBACK_TARGETS = {ActionStatus.PAYMENT_FAILED, ActionStatus.REFUNDED}
+    ALLOWED_TARGETS = {
+        ActionStatus.PAYMENT_COMPLETED,
+        ActionStatus.PAYMENT_FAILED,
+        ActionStatus.REFUNDED,
+    }
+
+    if new_status is not None:
+        if action.status != ActionStatus.PENDING_UNRESOLVED:
+            raise InvalidActionStateError(
+                f"Action {action_id} is {action.status.value}; "
+                "only PENDING_UNRESOLVED actions accept a resolution status change."
+            )
+        if new_status not in ALLOWED_TARGETS:
+            raise InvalidActionStateError(
+                f"Resolution target {new_status.value} not allowed. "
+                f"Use one of {sorted(s.value for s in ALLOWED_TARGETS)}."
+            )
+        action.status = new_status
+        action.updated_at = when
+        if new_status in ROLLBACK_TARGETS:
+            mandate = session.get(Mandate, action.mandate_id)
+            if mandate is not None:
+                roll_back_reservation(
+                    mandate, amount=Decimal(action.amount), now=when
+                )
+
+    mark_resolved(
+        session,
+        action_id=action.id,
+        resolved_by=resolved_by,
+        note=note,
+        when=when,
+    )
+    append_event(
+        session,
+        event_type=events.RESOLUTION_APPLIED,
+        action_id=action.id,
+        event_data={
+            "action_id": action.id,
+            "new_action_status": action.status.value,
+            "note": note,
+            "resolved_by": resolved_by,
         },
         timestamp=when,
     )
@@ -322,7 +468,7 @@ def revoke_mandate(
 
     append_event(
         session,
-        event_type="MANDATE_REVOKED",
+        event_type=events.MANDATE_REVOKED,
         event_data={
             "mandate_id": mandate.id,
             "customer_id": mandate.customer_id,
@@ -341,6 +487,7 @@ def execute_payment(
     action_id: str,
     *,
     now: datetime | None = None,
+    razorpay=None,  # for tests: inject a client (mock/failing) directly
 ) -> PaymentExecution:
     """
     Post-authorization payment execution. The only public path from Warden's
@@ -348,7 +495,7 @@ def execute_payment(
     verifies action state, but calling from anywhere but Warden is banned by
     the architectural-invariant tests.
     """
-    return _execute_payment(session, action_id, now=now)
+    return _execute_payment(session, action_id, now=now, razorpay=razorpay)
 
 
 def simulate_capture(
@@ -356,8 +503,9 @@ def simulate_capture(
     action_id: str,
     *,
     now: datetime | None = None,
+    razorpay=None,
 ) -> PaymentCapture:
-    return _simulate_capture(session, action_id, now=now)
+    return _simulate_capture(session, action_id, now=now, razorpay=razorpay)
 
 
 def refund_action(
@@ -365,8 +513,9 @@ def refund_action(
     action_id: str,
     *,
     now: datetime | None = None,
+    razorpay=None,
 ) -> PaymentRefund:
-    return _refund_action(session, action_id, now=now)
+    return _refund_action(session, action_id, now=now, razorpay=razorpay)
 
 
 # ---- Errors -----------------------------------------------------------------

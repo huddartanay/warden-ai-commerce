@@ -17,6 +17,8 @@ from app.agents import (
     quote_cart,
     search_catalog,
 )
+from app.audit import events
+from app.audit.service import append_event
 from app.db import get_db
 from app.models.enums import DecisionResult, ReasonCode
 from app.schemas.agent import (
@@ -158,6 +160,21 @@ def build_cart_endpoint(body: BuildCartRequest, db: Session = Depends(get_db)) -
         )
     )
     db.flush()
+    append_event(
+        db,
+        event_type=events.CART_CREATED,
+        event_data={
+            "cart_id": cart_id,
+            "mandate_id": mandate.id,
+            "merchant_id": mandate.merchant_id,
+            "items": [line.to_dict() for line in quote.items],
+            "total": str(quote.total),
+            "currency": quote.currency or mandate.currency,
+            "period": now.strftime("%Y-%m"),
+            "source": "build-cart",
+        },
+        timestamp=now,
+    )
 
     # Category surfaced to Warden — if the cart mixes categories, we pick the
     # first line's category and let Warden judge (allowed_categories is a set).

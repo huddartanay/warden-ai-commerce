@@ -19,6 +19,8 @@ from typing import Iterable
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.audit import events
+from app.audit.service import append_event
 from app.config import get_settings
 from app.db import Base
 from app.models import CatalogItem, Mandate, MandateStatus, Merchant
@@ -128,6 +130,26 @@ def seed_data(session: Session, *, now: datetime | None = None) -> dict:
                 )
             )
             created["mandates"] += 1
+            append_event(
+                session,
+                event_type=events.MANDATE_CREATED,
+                event_data={
+                    "mandate_id": m["id"],
+                    "customer_id": m["customer_id"],
+                    "merchant_id": MERCHANT_ID,
+                    "max_amount": str(m["max_amount"]),
+                    "currency": "INR",
+                    "allowed_categories": m["allowed_categories"],
+                    "transaction_limit": m["transaction_limit"],
+                    "validity_days": m["validity_days"],
+                    "step_up_over_amount": (
+                        str(m["step_up_over_amount"])
+                        if m.get("step_up_over_amount") is not None
+                        else None
+                    ),
+                },
+                timestamp=when,
+            )
 
     session.flush()
     return created

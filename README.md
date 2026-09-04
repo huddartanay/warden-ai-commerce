@@ -209,6 +209,23 @@ state machine, hash-chained audit writer.
 **Stage 3 — done:** Warden Core policy engine + coordinator + HTTP API. 73
 tests. See [docs/WARDEN_TEST_REPORT.md](docs/WARDEN_TEST_REPORT.md).
 **Stage 4 — done:** AI Buyer Agent + Explainer + demo mode.
+**Stage 6 — done:** Audit + failure-recovery layer.
+Central event catalog (`app/audit/events.py`) with 19 named event types;
+every stage now emits its full set (`MANDATE_CREATED`, `INTENT_RECEIVED`,
+`CART_CREATED`, `WARDEN_EVALUATED`, `BLOCKED`, `STEP_UP_REQUESTED`,
+`DUPLICATE_DETECTED`, `HUMAN_APPROVED`, `PAYMENT_CREATED`,
+`PAYMENT_COMPLETED`, `PAYMENT_FAILED`, `PAYMENT_PENDING_UNRESOLVED`,
+`REFUND_REQUESTED`, `REFUND_COMPLETED`, `RESOLUTION_APPLIED`, …).
+New `resolutions` table + resolution queue; auto-populated on STEP_UP
+(REQUIRES_HUMAN) and payment-uncertain outcomes (PENDING_UNRESOLVED).
+Endpoints: `GET /audit/action/{id}` · `GET /audit/mandate/{id}` ·
+`GET /audit/verify` · `GET /audit/resolution-queue` ·
+`POST /audit/resolve/{action_id}` · `POST /warden/execute-payment/…`
+(from Stage 5). **151 pytest cases green**, including the showcase
+`test_demo_payment_failure_never_double_charges` that walks a failed
+capture through the full recovery lifecycle proving no double charge.
+Next: judge dashboard.
+
 **Stage 5 — done:** Razorpay TEST-MODE integration.
 `app/payments/` is the only package that imports the Razorpay SDK; only
 `app/warden/coordinator.py` may import `app/payments/`. Enforced by

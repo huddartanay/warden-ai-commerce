@@ -32,6 +32,8 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.audit import events
+from app.audit.service import append_event
 from app.config import get_settings
 from app.models import Action, Cart, Decision, MandateStatus
 from app.models.enums import DecisionResult, ReasonCode
@@ -264,6 +266,21 @@ class BuyerAgent:
 
         run = AgentRun(intent_text=natural_language, parsed_intent=None, mandate=None)
 
+        # Log the intent as soon as it arrives — before any mandate lookup or
+        # LLM call. If we crash halfway through the pipeline the audit trail
+        # still shows a request was received.
+        append_event(
+            session,
+            event_type=events.INTENT_RECEIVED,
+            event_data={
+                "customer_id": customer_id,
+                "mandate_id": mandate_id,
+                "natural_language": natural_language,
+                "idempotency_key": idempotency_key,
+            },
+            timestamp=when,
+        )
+
         # 0) Idempotency short-circuit. If the same key has been processed,
         # skip the whole pipeline (no LLM, no cart rebuild) and return the
         # original decision. Mirrors Warden's own idempotency semantics but
@@ -276,6 +293,25 @@ class BuyerAgent:
             existing_decision = session.execute(
                 select(Decision).where(Decision.action_id == existing.id)
             ).scalar_one_or_none()
+            # Emit DUPLICATE_DETECTED so the audit trail on the original
+            # action shows the retry attempt(s) too.
+            append_event(
+                session,
+                event_type=events.DUPLICATE_DETECTED,
+                action_id=existing.id,
+                event_data={
+                    "action_id": existing.id,
+                    "idempotency_key": idempotency_key,
+                    "original_decision": (
+                        existing_decision.result.value if existing_decision else None
+                    ),
+                    "original_reason": (
+                        existing_decision.reason_code.value if existing_decision else None
+                    ),
+                    "source": "agent",
+                },
+                timestamp=when,
+            )
             outcome = _outcome_from_persisted(existing, existing_decision)
             run.warden = outcome
             run.agent_verdict = _combine_verdicts(
@@ -380,6 +416,21 @@ class BuyerAgent:
         session.add(cart_row)
         session.flush()
         run.cart_id = cart_id
+
+        append_event(
+            session,
+            event_type=events.CART_CREATED,
+            event_data={
+                "cart_id": cart_id,
+                "mandate_id": mandate.id,
+                "merchant_id": mandate.merchant_id,
+                "items": [line.to_dict() for line in quote.items],
+                "total": str(quote.total),
+                "currency": quote.currency or mandate.currency,
+                "period": period,
+            },
+            timestamp=when,
+        )
 
         # 7) Assemble the Proposal for Warden.
         #    quoted_price: what the agent thinks the cart totals.
