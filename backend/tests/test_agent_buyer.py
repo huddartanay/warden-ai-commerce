@@ -151,6 +151,40 @@ def test_idempotent_intent_returns_same_warden_action(session):
     assert second.warden.decision == first.warden.decision
 
 
+def test_impossible_budget_returns_agent_block_without_calling_warden(session):
+    """
+    Cheapest coffee is ₹699. A ₹100 budget yields zero candidates and an empty
+    cart. The agent must not proxy a zero-total proposal to Warden — it should
+    return a clean agent-level BLOCK with a specific message.
+    """
+    _seeded(session)
+    agent = _agent()
+
+    run = agent.run(
+        session,
+        natural_language="Buy me coffee, budget 100.",
+        customer_id="cust_priya_regular",
+        idempotency_key="empty_cart_1",
+    )
+    session.commit()
+
+    assert run.candidates == []
+    assert run.selected == []
+    # Nothing was submitted to Warden.
+    assert run.warden is None
+    assert run.cart_id is None
+    assert run.agent_verdict == DecisionResult.BLOCK
+    assert "budget" in run.explanation.lower() or "no matching" in run.explanation.lower()
+
+    # And no Action row was created (idempotency safety — repeat is possible).
+    from sqlalchemy import func, select
+
+    from app.models import Action
+
+    count = session.scalar(select(func.count()).select_from(Action))
+    assert count == 0
+
+
 def test_bulk_customer_high_amount_step_ups_via_warden(session):
     """Mandate B has step-up threshold ₹2000 and cap ₹5000."""
     _seeded(session)

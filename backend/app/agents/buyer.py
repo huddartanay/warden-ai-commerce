@@ -340,6 +340,30 @@ class BuyerAgent:
         )
         run.quote = quote
 
+        # 5a) No-cart short-circuit.
+        # If the LLM found no candidate that fits (empty selection, or every
+        # line got dropped), there is no financial action to authorize. Return
+        # a clean agent-level BLOCK rather than sending a zero-total proposal
+        # to Warden (which would rightly BLOCK on PRICE_DRIFT — quoted_price=0
+        # trips its own guard — but for a misleading reason).
+        if not selected or quote.total <= 0:
+            run.agent_confidence = min(parsed.confidence, sel_confidence)
+            run.agent_verdict = DecisionResult.BLOCK
+            run.warden = None
+            run.cart_id = None
+            if not candidates:
+                run.explanation = (
+                    "No matching products under this mandate. "
+                    f"Nothing in category '{parsed.desired_category}' fits within "
+                    f"budget ₹{budget}."
+                )
+            else:
+                run.explanation = (
+                    "The AI buyer could not assemble a cart within the "
+                    f"₹{budget} budget while respecting the mandate."
+                )
+            return run
+
         # 6) Persist Cart.
         period = when.strftime("%Y-%m")
         cart_id = f"cart_{uuid4().hex[:20]}"
