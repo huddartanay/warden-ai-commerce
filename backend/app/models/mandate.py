@@ -77,6 +77,23 @@ class Mandate(Base):
         Integer, nullable=False, default=0, server_default="0"
     )
 
+    # Rolling-window structuring detection. If both fields are set, Warden
+    # sums the amount of every ALLOWED / captured action against this
+    # mandate within the last `rolling_window_seconds` seconds and BLOCKs
+    # any proposal whose amount would push that sum over
+    # `rolling_window_max_amount`. Catches "split one large purchase into
+    # many smaller ones" (smurfing).
+    #
+    # Left as a distinct field from `max_amount` so a merchant can set a
+    # generous long-horizon cap (max_amount) while still detecting bursts
+    # inside a short window.
+    rolling_window_seconds: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    rolling_window_max_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(14, 2), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )

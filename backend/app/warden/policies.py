@@ -47,6 +47,22 @@ class WardenConfig:
 
 
 @dataclass(frozen=True)
+class WardenContext:
+    """
+    Pre-computed cross-row data the coordinator hands to the pure engine.
+
+    Populated by the coordinator BEFORE evaluate() runs so the policy chain
+    stays pure. Fields are Optional — a policy that needs a value it
+    doesn't have simply skips its check (fail-open only when the value was
+    never requested; a requested-but-None value is a system error).
+    """
+
+    rolling_window_recent_spend: Decimal | None = None
+    rolling_window_recent_count: int | None = None
+    rolling_window_seconds: int | None = None
+
+
+@dataclass(frozen=True)
 class CheckResult:
     name: str
     ok: bool
@@ -70,7 +86,7 @@ def _ensure_utc(dt: datetime | None) -> datetime | None:
 # ---- Individual policies ----------------------------------------------------
 
 
-def check_mandate_exists(mandate: Mandate | None, proposal: Proposal, now: datetime, cfg: WardenConfig) -> CheckResult:
+def check_mandate_exists(mandate: Mandate | None, proposal: Proposal, now: datetime, cfg: WardenConfig, ctx: WardenContext | None = None) -> CheckResult:
     if mandate is None:
         return CheckResult(
             name="mandate_exists",
@@ -82,7 +98,7 @@ def check_mandate_exists(mandate: Mandate | None, proposal: Proposal, now: datet
     return CheckResult("mandate_exists", True, "PASS", None, f"mandate {mandate.id} found")
 
 
-def check_mandate_status(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig) -> CheckResult:
+def check_mandate_status(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig, ctx: WardenContext | None = None) -> CheckResult:
     if mandate.status == MandateStatus.REVOKED:
         return CheckResult(
             "mandate_status", False, "BLOCK", ReasonCode.MANDATE_REVOKED,
@@ -114,7 +130,7 @@ def check_mandate_status(mandate: Mandate, proposal: Proposal, now: datetime, cf
     return CheckResult("mandate_status", True, "PASS", None, f"status={mandate.status.value}")
 
 
-def check_within_validity(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig) -> CheckResult:
+def check_within_validity(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig, ctx: WardenContext | None = None) -> CheckResult:
     when = _ensure_utc(now) or datetime.now(tz=timezone.utc)
     start = _ensure_utc(mandate.validity_start)
     end = _ensure_utc(mandate.validity_end)
@@ -136,7 +152,7 @@ def check_within_validity(mandate: Mandate, proposal: Proposal, now: datetime, c
     )
 
 
-def check_merchant_match(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig) -> CheckResult:
+def check_merchant_match(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig, ctx: WardenContext | None = None) -> CheckResult:
     if proposal.merchant_id != mandate.merchant_id:
         return CheckResult(
             "merchant_match", False, "BLOCK", ReasonCode.INVALID_MANDATE,
@@ -146,7 +162,7 @@ def check_merchant_match(mandate: Mandate, proposal: Proposal, now: datetime, cf
     return CheckResult("merchant_match", True, "PASS", None, f"merchant={mandate.merchant_id}")
 
 
-def check_customer_match(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig) -> CheckResult:
+def check_customer_match(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig, ctx: WardenContext | None = None) -> CheckResult:
     if proposal.customer_id != mandate.customer_id:
         return CheckResult(
             "customer_match", False, "BLOCK", ReasonCode.INVALID_MANDATE,
@@ -156,7 +172,7 @@ def check_customer_match(mandate: Mandate, proposal: Proposal, now: datetime, cf
     return CheckResult("customer_match", True, "PASS", None, f"customer={mandate.customer_id}")
 
 
-def check_currency_match(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig) -> CheckResult:
+def check_currency_match(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig, ctx: WardenContext | None = None) -> CheckResult:
     if proposal.currency.upper() != mandate.currency.upper():
         return CheckResult(
             "currency_match", False, "BLOCK", ReasonCode.INVALID_MANDATE,
@@ -166,7 +182,7 @@ def check_currency_match(mandate: Mandate, proposal: Proposal, now: datetime, cf
     return CheckResult("currency_match", True, "PASS", None, f"currency={mandate.currency}")
 
 
-def check_category_allowed(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig) -> CheckResult:
+def check_category_allowed(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig, ctx: WardenContext | None = None) -> CheckResult:
     allowed = set(mandate.allowed_categories or [])
     if proposal.category not in allowed:
         return CheckResult(
@@ -179,7 +195,7 @@ def check_category_allowed(mandate: Mandate, proposal: Proposal, now: datetime, 
     )
 
 
-def check_amount_within_cap(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig) -> CheckResult:
+def check_amount_within_cap(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig, ctx: WardenContext | None = None) -> CheckResult:
     remaining = Decimal(mandate.max_amount) - Decimal(mandate.current_period_spend or 0)
     if Decimal(proposal.amount) > remaining:
         return CheckResult(
@@ -195,7 +211,7 @@ def check_amount_within_cap(mandate: Mandate, proposal: Proposal, now: datetime,
     )
 
 
-def check_transaction_frequency(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig) -> CheckResult:
+def check_transaction_frequency(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig, ctx: WardenContext | None = None) -> CheckResult:
     used = int(mandate.current_period_transactions or 0)
     limit = int(mandate.transaction_limit)
     if used >= limit:
@@ -208,7 +224,7 @@ def check_transaction_frequency(mandate: Mandate, proposal: Proposal, now: datet
     )
 
 
-def check_price_drift(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig) -> CheckResult:
+def check_price_drift(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig, ctx: WardenContext | None = None) -> CheckResult:
     quoted = Decimal(proposal.quoted_price)
     current = Decimal(proposal.current_price)
     if quoted == 0:
@@ -232,7 +248,74 @@ def check_price_drift(mandate: Mandate, proposal: Proposal, now: datetime, cfg: 
     )
 
 
-def check_step_up_rule(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig) -> CheckResult:
+def check_rolling_window_spend(
+    mandate: Mandate,
+    proposal: Proposal,
+    now: datetime,
+    cfg: WardenConfig,
+    ctx: WardenContext | None = None,
+) -> CheckResult:
+    """
+    Structuring / smurfing detection.
+
+    If the mandate carries a rolling_window_seconds, the coordinator
+    populates ctx.rolling_window_recent_spend with the sum of every ALLOWED
+    action's amount in that window. This policy BLOCKs if the new proposal
+    would push (recent_spend + amount) above the mandate cap — catching
+    "split one large purchase into several smaller ones" attempts even
+    when each individual proposal fits under any per-tx threshold.
+    """
+    window = mandate.rolling_window_seconds
+    if not window:
+        return CheckResult(
+            "rolling_window_spend", True, "PASS", None, "no rolling window configured"
+        )
+    if ctx is None or ctx.rolling_window_recent_spend is None:
+        # Coordinator forgot to populate — safest is to skip the check
+        # rather than fabricate a value that might be wrong. Note it.
+        return CheckResult(
+            "rolling_window_spend",
+            True,
+            "PASS",
+            None,
+            "no rolling-window snapshot available (skipped)",
+        )
+    recent = Decimal(ctx.rolling_window_recent_spend)
+    count = int(ctx.rolling_window_recent_count or 0)
+    incoming = Decimal(proposal.amount)
+    # A distinct rolling-window cap can be set on the mandate; otherwise fall
+    # back to the mandate's overall cap so the check is still enforceable
+    # when only rolling_window_seconds is configured.
+    cap_raw = mandate.rolling_window_max_amount or mandate.max_amount
+    cap = Decimal(cap_raw)
+    projected = recent + incoming
+    if projected > cap:
+        return CheckResult(
+            "rolling_window_spend",
+            False,
+            "BLOCK",
+            ReasonCode.CUMULATIVE_SPEND_EXCEEDED,
+            (
+                f"CUMULATIVE_SPEND_EXCEEDED: {count + 1} proposals in {window}s "
+                f"would total {_fmt_money(projected, mandate.currency)} against "
+                f"{_fmt_money(cap, mandate.currency)} cap "
+                f"(prior spend {_fmt_money(recent, mandate.currency)} + this "
+                f"{_fmt_money(incoming, mandate.currency)})."
+            ),
+        )
+    return CheckResult(
+        "rolling_window_spend",
+        True,
+        "PASS",
+        None,
+        (
+            f"projected {_fmt_money(projected, mandate.currency)} "
+            f"within {_fmt_money(cap, mandate.currency)} across {window}s window"
+        ),
+    )
+
+
+def check_step_up_rule(mandate: Mandate, proposal: Proposal, now: datetime, cfg: WardenConfig, ctx: WardenContext | None = None) -> CheckResult:
     threshold = mandate.step_up_over_amount
     if threshold is None:
         return CheckResult("step_up_rule", True, "PASS", None, "no step-up rule configured")
@@ -253,13 +336,19 @@ def check_step_up_rule(mandate: Mandate, proposal: Proposal, now: datetime, cfg:
 # Ordered as spec's 12-step list, minus step 11 (idempotency) which the
 # coordinator handles ahead of the engine. Step-up rule is always last so it
 # can only convert an otherwise-ALLOWed decision.
-POLICY_ORDER: list[Callable[[Mandate, Proposal, datetime, WardenConfig], CheckResult]] = [
+POLICY_ORDER: list[
+    Callable[[Mandate, Proposal, datetime, WardenConfig, WardenContext | None], CheckResult]
+] = [
     check_mandate_status,          # 2 (mandate_exists is checked at coordinator load)
     check_within_validity,         # 3
     check_merchant_match,          # 4
     check_customer_match,          # 5
     check_currency_match,          # 6
     check_category_allowed,        # 7
+    # Rolling-window (structuring) check runs BEFORE amount_within_cap so
+    # that when both would trip on the same threshold, the more descriptive
+    # CUMULATIVE_SPEND_EXCEEDED reason wins over the generic CAP_EXCEEDED.
+    check_rolling_window_spend,    # 7b — structuring / smurfing
     check_amount_within_cap,       # 8
     check_transaction_frequency,   # 9
     check_price_drift,             # 10

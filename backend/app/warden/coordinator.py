@@ -60,7 +60,7 @@ from app.warden.auth import (
     verify_agent_authorized,
 )
 from app.warden.engine import EngineDecision, evaluate
-from app.warden.policies import CheckResult, Proposal, WardenConfig
+from app.warden.policies import CheckResult, Proposal, WardenConfig, WardenContext
 
 
 # ---- Public result -----------------------------------------------------------
@@ -145,6 +145,47 @@ def _status_from_decision(result: DecisionResult) -> ActionStatus:
 
 
 _MAX_CAS_RETRIES = 3
+
+
+def _rolling_window_snapshot(
+    session: Session, *, mandate: Mandate, when: datetime
+) -> WardenContext:
+    """
+    Sum the amount of every non-terminated ALLOWED-or-past-ALLOWED action
+    against this mandate within the last `rolling_window_seconds`. Used to
+    detect structuring/smurfing before the engine decides ALLOW.
+
+    We count actions in ALLOWED / STEP_UP_APPROVED / PAYMENT_INITIATED /
+    PAYMENT_COMPLETED / PENDING_UNRESOLVED — anything the customer has been
+    charged for or committed to. FAILED / BLOCKED / REFUNDED are excluded.
+    """
+    from datetime import timedelta
+
+    window = getattr(mandate, "rolling_window_seconds", None)
+    if not window:
+        return WardenContext()
+
+    cutoff = when - timedelta(seconds=int(window))
+    counted_states = (
+        ActionStatus.ALLOWED,
+        ActionStatus.STEP_UP_APPROVED,
+        ActionStatus.PAYMENT_INITIATED,
+        ActionStatus.PAYMENT_COMPLETED,
+        ActionStatus.PENDING_UNRESOLVED,
+    )
+    rows = session.execute(
+        select(Action.amount).where(
+            Action.mandate_id == mandate.id,
+            Action.status.in_(counted_states),
+            Action.created_at >= cutoff,
+        )
+    ).all()
+    total = sum((Decimal(r[0]) for r in rows), Decimal("0"))
+    return WardenContext(
+        rolling_window_recent_spend=total,
+        rolling_window_recent_count=len(rows),
+        rolling_window_seconds=int(window),
+    )
 
 
 def _try_reserve_cas(
@@ -429,7 +470,14 @@ def evaluate_proposal(
             if computed != mandate.status:
                 mandate.status = computed
 
-        engine_result = evaluate(mandate, proposal, now=when, config=config)
+        engine_ctx = (
+            _rolling_window_snapshot(session, mandate=mandate, when=when)
+            if mandate is not None
+            else None
+        )
+        engine_result = evaluate(
+            mandate, proposal, now=when, config=config, context=engine_ctx
+        )
 
         if engine_result.result != DecisionResult.ALLOW or mandate is None:
             # BLOCK / STEP_UP don't touch the reservation counter; no CAS needed.

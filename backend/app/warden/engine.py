@@ -19,6 +19,7 @@ from app.warden.policies import (
     CheckResult,
     Proposal,
     WardenConfig,
+    WardenContext,
     check_mandate_exists,
 )
 
@@ -41,16 +42,18 @@ def evaluate(
     *,
     now: datetime | None = None,
     config: WardenConfig | None = None,
+    context: WardenContext | None = None,
 ) -> EngineDecision:
     """Run the policy chain and produce a single deterministic decision."""
     when = now or _now_utc()
     cfg = config or WardenConfig()
+    ctx = context or WardenContext()
 
     checks: list[CheckResult] = []
 
     # Step 1: mandate exists. Special-cased because a missing mandate means
     # every downstream check would NPE.
-    existence = check_mandate_exists(mandate, proposal, when, cfg)
+    existence = check_mandate_exists(mandate, proposal, when, cfg, ctx)
     checks.append(existence)
     if not existence.ok:
         return EngineDecision(
@@ -65,7 +68,7 @@ def evaluate(
     step_up: CheckResult | None = None
 
     for policy in POLICY_ORDER:
-        result = policy(mandate, proposal, when, cfg)
+        result = policy(mandate, proposal, when, cfg, ctx)
         checks.append(result)
 
         if result.verdict == "PASS":
