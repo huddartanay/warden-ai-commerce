@@ -1,4 +1,35 @@
-# Warden
+# Warden — Trust Infrastructure for AI Commerce
+
+> **AI proposes. Warden authorizes. Razorpay executes. Audit proves.**
+
+Submission for the Razorpay AI Builder Internship 2026 — Track 1: AI Growth & Agentic Commerce.
+
+| | |
+|---|---|
+| 🌐 **Live demo** | `LIVE_URL_HERE` |
+| 💻 **Repository** | `REPO_URL_HERE` |
+| 🎥 **5-minute demo video** | `VIDEO_URL_HERE` |
+
+> Deploy + record in ~15 minutes with the step-by-step guide in [`docs/DEPLOY.md`](docs/DEPLOY.md).
+
+---
+
+## Why Warden
+
+AI buyer agents can already search catalogs, understand natural-language intent, and
+build carts. Soon they'll be doing it at scale on behalf of real customers.
+
+The dangerous part isn't the "buyer" — it's the "authorization." An LLM that can call
+`capture_payment` directly is one prompt-injection away from draining someone's bank
+account. A merchant that lets an AI freely charge cards is one silent bug away from
+regulatory catastrophe.
+
+**Warden is the deterministic authorization boundary between AI intent and money movement.**
+
+- **AI** proposes the purchase (understands intent, searches catalog, builds a cart).
+- **Warden** decides whether it can proceed (rule-based, no LLM in the decision path).
+- **Razorpay** executes the payment — but only if Warden ALLOWed it first.
+- **Audit** records every step in a SHA-256 hash-chained log that can be re-verified live.
 
 **Let AI create demand. Let Warden decide when money can move.**
 

@@ -1,0 +1,61 @@
+# Render Blueprint — deploys Warden as two services from one commit.
+#
+# HOW TO USE THIS FILE
+# --------------------
+# 1. Push this repo to GitHub (see docs/DEPLOY.md).
+# 2. Sign up at https://render.com (free, GitHub login).
+# 3. Click "New +" -> "Blueprint" -> select your repo.
+# 4. Render reads this file and creates both services. Click Apply.
+# 5. Wait ~4-5 minutes for the first build to finish.
+#
+# You'll get two public URLs:
+#   - warden-backend.onrender.com   (FastAPI)
+#   - warden-frontend.onrender.com  (Next.js)
+#
+# Open the frontend URL. That's your judge link.
+
+databases: []
+
+services:
+  # ---- Backend: FastAPI + SQLite (ephemeral is fine for the demo) ----
+  - type: web
+    name: warden-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      python -m app.seed --url sqlite:///warden.db --create-tables
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        value: sqlite:///warden.db
+      - key: WARDEN_LLM_MODE
+        value: mock
+      - key: RAZORPAY_MODE
+        value: mock
+      - key: DEMO_MODE
+        value: "true"
+      - key: PYTHON_VERSION
+        value: "3.12.3"
+
+  # ---- Frontend: Next.js ----
+  - type: web
+    name: warden-frontend
+    runtime: node
+    plan: free
+    rootDir: frontend
+    buildCommand: |
+      npm ci
+      npm run build
+    startCommand: npm run start -- -p $PORT
+    envVars:
+      - key: NEXT_PUBLIC_API_BASE_URL
+        # Render substitutes the sibling service's public URL at build time.
+        fromService:
+          name: warden-backend
+          type: web
+          property: hostport
+      - key: NODE_VERSION
+        value: "22.17.0"

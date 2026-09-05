@@ -20,6 +20,14 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
+        # Allow the sibling Render service (and any Vercel preview) to call
+        # this API. Regex is intersected with allow_origins; Render URLs never
+        # match a bare localhost pattern, so this is safe for local dev too.
+        allow_origin_regex=(
+            r"https?://.*\.onrender\.com|"
+            r"https?://.*\.vercel\.app|"
+            r"http://localhost:\d+"
+        ),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
