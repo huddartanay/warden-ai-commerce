@@ -209,6 +209,28 @@ state machine, hash-chained audit writer.
 **Stage 3 — done:** Warden Core policy engine + coordinator + HTTP API. 73
 tests. See [docs/WARDEN_TEST_REPORT.md](docs/WARDEN_TEST_REPORT.md).
 **Stage 4 — done:** AI Buyer Agent + Explainer + demo mode.
+**Stage 8 — done:** Judge dashboard (Next.js + TS + Tailwind).
+Three-panel main screen — **AI Buyer** (intent, agent reasoning, selected
+products, cart, confidence, current action), **Warden hero** (7 pillar
+checks: Mandate · Customer · Category · Spend · Velocity · Price ·
+Idempotency, then a large ALLOW / STEP-UP / BLOCK badge with reason code
+and explanation), **Audit Trail** (live chronological event stream, each
+row hash-chained and clickable to `/transaction/[actionId]`).
+Top bar tracks backend health, audit-chain verification badge, action
+counter, pending-review counter. Live 3-second polling of `/demo/summary`
+and `/health/ready`. Human approval card renders automatically when the
+current action is `STEP_UP_PENDING` or `PENDING_UNRESOLVED`.
+Six one-click demo scenarios wired to backend `POST /demo/scenario/{name}`
+so nothing is faked in the UI: Successful Purchase, Cap Exceeded, Step-Up,
+Duplicate, Price Drift, Payment Failure. `POST /demo/reset` clears state
+between demos; `POST /audit/verify` re-hashes the chain live.
+Transaction detail page shows mandate + cart + Warden checks + decision
++ reason + Razorpay refs + timestamps + full per-row hash chain, with
+inline approve / reconcile buttons.
+Backend + frontend both work in demo mode without external APIs
+(`WARDEN_LLM_MODE=mock`, `RAZORPAY_MODE=mock`). Backend suite still
+166/166 green. Frontend `npm run build` clean.
+
 **Stage 7 — done:** Concurrency, agent identity, adversarial resilience.
 Four features, four commits:
 (1) Atomic spend-cap enforcement via `mandate.version` + optimistic CAS
