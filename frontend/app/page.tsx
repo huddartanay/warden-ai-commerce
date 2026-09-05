@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  fetchAuditForAction,
   fetchDemoSummary,
   fetchReadiness,
-  runScenario,
+  verifyAuditChain,
 } from "@/lib/api";
 import type {
+  AuditEntry,
   AuditVerifyResponse,
   DemoSummary,
   ScenarioEnvelope,
@@ -15,7 +17,10 @@ import { usePolling } from "@/lib/polling";
 import { AIBuyerPanel } from "@/components/AIBuyerPanel";
 import { AuditPanel } from "@/components/AuditPanel";
 import { DemoControls } from "@/components/DemoControls";
+import { FlowIndicator } from "@/components/FlowIndicator";
 import { HumanApprovalCard } from "@/components/HumanApprovalCard";
+import { KPICards } from "@/components/KPICards";
+import { RecentTransactions } from "@/components/RecentTransactions";
 import { TopBar } from "@/components/TopBar";
 import { WardenPanel } from "@/components/WardenPanel";
 
@@ -24,9 +29,9 @@ export default function DashboardPage() {
   const [verifyResult, setVerifyResult] = useState<AuditVerifyResponse | null>(
     null,
   );
-  const [busy, setBusy] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [freshAudit, setFreshAudit] = useState<AuditEntry[]>([]);
 
-  // Poll the /demo/summary endpoint continuously for header stats + backend health.
   const { data: summary } = usePolling<DemoSummary>(fetchDemoSummary, 3000);
   const [backendUp, setBackendUp] = useState(true);
   useEffect(() => {
@@ -38,111 +43,118 @@ export default function DashboardPage() {
     return () => window.clearInterval(id);
   }, []);
 
-  // When there IS a current action, keep re-running the scenario's original
-  // envelope by asking for the latest audit + action state. We simply
-  // rerun the last scenario to refresh the envelope; simpler than composing
-  // /warden/action + /audit/action separately.
-  const [lastScenario, setLastScenario] = useState<string | null>(null);
-  const refresh = useCallback(async () => {
-    if (!lastScenario) return;
-    try {
-      setBusy(true);
-      // Fetching /audit/action gives us fresh audit entries + action status;
-      // but the envelope shape needs the demo response. Simpler: just
-      // trigger a targeted lookup by reusing the scenario helper's output.
-      // For live refresh we rely on the polled /demo/summary + on-demand
-      // clicks; the user always sees the latest audit chain validity in the
-      // header. Individual action refreshes happen when they open the
-      // transaction detail page.
-    } finally {
-      setBusy(false);
+  // While a scenario is on-screen, refresh its audit entries every 3 seconds
+  // (so human-approve / resolve interactions update the trail live).
+  const currentActionId = envelope?.action?.id ?? null;
+  useEffect(() => {
+    if (!currentActionId) {
+      setFreshAudit([]);
+      return;
     }
-  }, [lastScenario]);
+    let cancelled = false;
+    const load = () =>
+      fetchAuditForAction(currentActionId)
+        .then((r) => {
+          if (!cancelled) setFreshAudit(r.entries);
+        })
+        .catch(() => undefined);
+    load();
+    const id = window.setInterval(load, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [currentActionId]);
 
   const onScenario = useCallback((env: ScenarioEnvelope) => {
     setEnvelope(env);
-    setLastScenario(env.scenario);
     setVerifyResult(null);
+    setFreshAudit(env.audit ?? []);
   }, []);
 
   const onReset = useCallback(() => {
     setEnvelope(null);
-    setLastScenario(null);
     setVerifyResult(null);
+    setFreshAudit([]);
   }, []);
 
-  const onApprovalDone = useCallback(async () => {
-    // Human just approved / resolved something — re-run the last scenario's
-    // envelope lookup by simply re-fetching /demo/summary and rerunning the
-    // scenario is destructive. Instead, we replay via /demo/scenario is also
-    // destructive. Cheapest correct thing is: navigate to /transaction/{id}
-    // which has a live view. Also update the header via the polling above.
-    refresh();
-  }, [refresh]);
+  const onVerify = useCallback(async () => {
+    setVerifying(true);
+    try {
+      const v = await verifyAuditChain();
+      setVerifyResult(v);
+    } finally {
+      setVerifying(false);
+    }
+  }, []);
+
+  // The audit panel prefers freshAudit (per-action) when a scenario is active,
+  // and falls back to envelope.audit (global last-40) when a scenario just ran.
+  const mergedAudit = envelope
+    ? envelope.audit?.length
+      ? envelope.audit
+      : freshAudit
+    : [];
+
+  const chainValid = verifyResult
+    ? verifyResult.valid
+    : (summary?.audit_chain_valid ?? null);
+  const chainChecked = verifyResult ? verifyResult.entries_checked : null;
 
   return (
-    <div className="min-h-screen mx-auto max-w-[1400px] px-4 py-4 flex flex-col gap-4">
+    <div className="min-h-screen mx-auto max-w-[1440px] px-6 py-5 flex flex-col gap-4">
       <TopBar summary={summary} backendUp={backendUp} />
-      <DemoControls
-        onScenario={onScenario}
-        onVerify={setVerifyResult}
-        onReset={onReset}
-        busy={busy}
-      />
-      {verifyResult ? (
-        <div
-          className={`card p-3 text-[12px] ${
-            verifyResult.valid
-              ? "border-[color:var(--ok)]/40"
-              : "border-[color:var(--bad)]/40"
-          }`}
-        >
-          <div className="flex items-center gap-2 flex-wrap">
-            <span
-              className={`mono text-[11px] uppercase tracking-widest ${
-                verifyResult.valid
-                  ? "text-[color:var(--ok)]"
-                  : "text-[color:var(--bad)]"
-              }`}
-            >
-              {verifyResult.valid ? "chain ✓ valid" : "chain ✕ broken"}
-            </span>
-            <span className="text-[color:var(--text-2)]">
-              {verifyResult.entries_checked} entries re-hashed
-            </span>
-            {verifyResult.first_invalid_entry ? (
-              <span className="mono text-[color:var(--bad)]">
-                first invalid seq{" "}
-                {String(
-                  (verifyResult.first_invalid_entry as { seq?: number }).seq,
-                )}{" "}
-                ·{" "}
-                {String(
-                  (verifyResult.first_invalid_entry as { reason?: string })
-                    .reason,
-                )}
-              </span>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
 
-      <HumanApprovalCard env={envelope} onDone={onApprovalDone} />
+      <KPICards summary={summary} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
-        <div className="lg:col-span-3 min-h-[420px]">
+      <FlowIndicator env={envelope} />
+
+      <HumanApprovalCard env={envelope} onDone={() => undefined} />
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 min-h-[520px]">
+        <div className="lg:col-span-3 flex flex-col">
           <AIBuyerPanel env={envelope} />
         </div>
-        <div className="lg:col-span-6 min-h-[420px]">
+        <div className="lg:col-span-6 flex flex-col">
           <WardenPanel env={envelope} />
         </div>
-        <div className="lg:col-span-3 min-h-[420px] flex flex-col min-h-0">
+        <div className="lg:col-span-3 flex flex-col min-h-0">
           <AuditPanel
             env={envelope}
-            chainValid={summary?.audit_chain_valid ?? null}
+            auditEntries={mergedAudit}
+            chainValid={chainValid}
+            entriesChecked={chainChecked}
+            onVerify={onVerify}
+            verifying={verifying}
           />
         </div>
       </div>
+
+      {verifyResult && !verifyResult.valid && verifyResult.first_invalid_entry ? (
+        <div className="card border-[color:var(--bad-border)] p-3 text-[12px]">
+          <span className="mono text-[color:var(--bad)] font-semibold">
+            Chain broken —
+          </span>{" "}
+          <span className="text-[color:var(--text-2)]">
+            first invalid seq{" "}
+            {String(
+              (verifyResult.first_invalid_entry as { seq?: number }).seq,
+            )}{" "}
+            ·{" "}
+            {String(
+              (verifyResult.first_invalid_entry as { reason?: string }).reason,
+            )}
+          </span>
+        </div>
+      ) : null}
+
+      <DemoControls
+        onScenario={onScenario}
+        onReset={onReset}
+        busy={verifying}
+      />
+
+      <RecentTransactions actions={summary?.recent_actions ?? null} />
     </div>
   );
 }

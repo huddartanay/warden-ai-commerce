@@ -194,6 +194,7 @@ def _action_envelope(session: Session, action_id: str) -> dict:
             {
                 "seq": r.seq,
                 "event_id": r.event_id,
+                "action_id": r.action_id,
                 "event_type": r.event_type,
                 "event_data": r.event_data,
                 "previous_hash": r.previous_hash,
@@ -490,9 +491,18 @@ def run_scenario(name: str, db: Session = Depends(get_db)) -> dict:
 def demo_summary(db: Session = Depends(get_db)) -> dict:
     """
     Snapshot for the dashboard header: mandate counts, recent action counts,
-    audit chain validity, resolution-queue depth.
+    audit chain validity, resolution-queue depth, and KPIs the dashboard
+    renders (protected value, allowed / blocked / step_up counts).
     """
     from sqlalchemy import func
+
+    ALLOWED_STATES = {
+        ActionStatus.ALLOWED,
+        ActionStatus.STEP_UP_APPROVED,
+        ActionStatus.PAYMENT_INITIATED,
+        ActionStatus.PAYMENT_COMPLETED,
+    }
+    BLOCKED_STATES = {ActionStatus.BLOCKED, ActionStatus.PAYMENT_FAILED}
 
     mandate_count = db.scalar(select(func.count()).select_from(Mandate)) or 0
     action_count = db.scalar(select(func.count()).select_from(Action)) or 0
@@ -504,10 +514,80 @@ def demo_summary(db: Session = Depends(get_db)) -> dict:
     audit_count = db.scalar(select(func.count()).select_from(AuditLog)) or 0
     ok, reason = verify_chain(db)
 
-    latest_action = (
-        db.execute(select(Action).order_by(Action.created_at.desc()).limit(1))
-        .scalar_one_or_none()
+    # Count actions by decision result via the Decision row (definitive).
+    result_counts = db.execute(
+        select(Decision.result, func.count()).group_by(Decision.result)
+    ).all()
+    allowed_count = 0
+    blocked_count = 0
+    step_up_count = 0
+    for r, n in result_counts:
+        if r == DecisionResult.ALLOW:
+            allowed_count = int(n)
+        elif r == DecisionResult.BLOCK:
+            blocked_count = int(n)
+        elif r == DecisionResult.STEP_UP:
+            step_up_count = int(n)
+
+    # Protected value = sum of ALLOW'd action amounts. What Warden let AI move.
+    allowed_action_ids = db.execute(
+        select(Decision.action_id).where(Decision.result == DecisionResult.ALLOW)
+    ).scalars().all()
+    protected_value = Decimal("0")
+    if allowed_action_ids:
+        rows = db.execute(
+            select(Action.amount).where(Action.id.in_(allowed_action_ids))
+        ).all()
+        for (amt,) in rows:
+            protected_value += Decimal(amt)
+
+    # Blocked value = sum of BLOCK'd action amounts. What Warden refused.
+    blocked_action_ids = db.execute(
+        select(Decision.action_id).where(Decision.result == DecisionResult.BLOCK)
+    ).scalars().all()
+    blocked_value = Decimal("0")
+    if blocked_action_ids:
+        rows = db.execute(
+            select(Action.amount).where(Action.id.in_(blocked_action_ids))
+        ).all()
+        for (amt,) in rows:
+            blocked_value += Decimal(amt)
+
+    # Recent transactions for the table.
+    recent_rows = (
+        db.execute(
+            select(Action, Decision)
+            .outerjoin(Decision, Decision.action_id == Action.id)
+            .order_by(Action.created_at.desc())
+            .limit(10)
+        )
+        .all()
     )
+    recent_actions = []
+    for a, d in recent_rows:
+        ref = db.execute(
+            select(RazorpayRef.razorpay_id)
+            .where(
+                RazorpayRef.action_id == a.id, RazorpayRef.ref_type == "order"
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        recent_actions.append(
+            {
+                "action_id": a.id,
+                "mandate_id": a.mandate_id,
+                "amount": str(a.amount),
+                "currency": a.currency,
+                "status": a.status.value,
+                "created_at": a.created_at.isoformat(),
+                "decision_result": d.result.value if d else None,
+                "reason_code": d.reason_code.value if d else None,
+                "razorpay_order_id": ref,
+            }
+        )
+
+    latest_action = recent_rows[0][0] if recent_rows else None
+
     return {
         "mandate_count": mandate_count,
         "action_count": action_count,
@@ -516,4 +596,13 @@ def demo_summary(db: Session = Depends(get_db)) -> dict:
         "audit_chain_valid": ok,
         "audit_chain_reason": reason,
         "latest_action_id": latest_action.id if latest_action else None,
+        # KPIs
+        "allowed_count": allowed_count,
+        "blocked_count": blocked_count,
+        "step_up_count": step_up_count,
+        "protected_value": str(protected_value),
+        "blocked_value": str(blocked_value),
+        "currency": "INR",
+        # Recent activity feed
+        "recent_actions": recent_actions,
     }

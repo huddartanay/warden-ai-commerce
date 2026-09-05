@@ -85,8 +85,8 @@ export default function TransactionDetailPage(
           ← Dashboard
         </Link>
         <div className="card p-4 mt-4">
-          <div className="section-label">Transaction not found</div>
-          <p className="text-sm text-[color:var(--text-2)] mt-2">
+          <div className="eyebrow">Transaction not found</div>
+          <p className="text-[13px] text-[color:var(--text-2)] mt-2">
             {detailError.message}
           </p>
         </div>
@@ -96,7 +96,7 @@ export default function TransactionDetailPage(
 
   if (!detail) {
     return (
-      <div className="max-w-3xl mx-auto p-6 text-[color:var(--text-3)] text-sm">
+      <div className="max-w-3xl mx-auto p-6 text-[color:var(--text-3)] text-[13px]">
         Loading transaction {actionId}…
       </div>
     );
@@ -109,17 +109,17 @@ export default function TransactionDetailPage(
   const showReconcile = action.status === "PENDING_UNRESOLVED";
 
   return (
-    <div className="min-h-screen mx-auto max-w-[1200px] px-4 py-4 flex flex-col gap-4">
+    <div className="min-h-screen mx-auto max-w-[1200px] px-6 py-5 flex flex-col gap-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
           <Link
             href="/"
-            className="text-[12px] text-[color:var(--text-3)] hover:underline"
+            className="text-[12px] text-[color:var(--brand-blue)] hover:underline"
           >
             ← Dashboard
           </Link>
           <div>
-            <div className="section-label">Transaction</div>
+            <div className="eyebrow">Transaction</div>
             <div className="mono text-[13px]">{action.id}</div>
           </div>
         </div>
@@ -130,11 +130,15 @@ export default function TransactionDetailPage(
       </div>
 
       {decision ? (
-        <DecisionBadge result={decision.result} reason={decision.reason_code} />
+        <DecisionBadge
+          result={decision.result}
+          reason={decision.reason_code}
+          detail={decision.explanation}
+        />
       ) : null}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Section title="Action" className="lg:col-span-1">
+        <Section eyebrow="Action" title="Proposal" className="lg:col-span-1">
           <KV k="ID" v={action.id} mono />
           <KV k="Mandate" v={action.mandate_id} mono />
           <KV k="Cart" v={action.cart_id ?? "—"} mono />
@@ -145,7 +149,11 @@ export default function TransactionDetailPage(
           <KV k="Updated" v={formatTimestamp(action.updated_at)} />
         </Section>
 
-        <Section title="Warden decision" className="lg:col-span-2">
+        <Section
+          eyebrow="Warden"
+          title="Decision"
+          className="lg:col-span-2"
+        >
           {decision ? (
             <>
               <KV k="Result" v={decision.result} />
@@ -157,7 +165,7 @@ export default function TransactionDetailPage(
             </>
           ) : (
             <p className="text-[13px] text-[color:var(--text-3)]">
-              No decision recorded for this action.
+              No decision recorded.
             </p>
           )}
           {(showApprove || showReconcile) && (
@@ -165,7 +173,7 @@ export default function TransactionDetailPage(
               {showApprove ? (
                 <button
                   onClick={approve}
-                  className="rounded px-3 py-2 text-sm font-medium bg-[color:var(--ok)] text-black hover:brightness-110"
+                  className="rounded-md px-3 py-2 text-[13px] font-semibold bg-[color:var(--ok)] text-white hover:brightness-110"
                 >
                   Approve step-up
                 </button>
@@ -174,13 +182,13 @@ export default function TransactionDetailPage(
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={resolvePayFailed}
-                    className="rounded px-3 py-2 text-sm bg-[color:var(--bad)]/90 text-white hover:brightness-110"
+                    className="rounded-md px-3 py-2 text-[13px] font-semibold border border-[color:var(--bad-border)] text-[color:var(--bad)] bg-white hover:bg-[color:var(--bad-soft)]"
                   >
                     Mark FAILED
                   </button>
                   <button
                     onClick={resolvePayCompleted}
-                    className="rounded px-3 py-2 text-sm bg-[color:var(--ok)] text-black hover:brightness-110"
+                    className="rounded-md px-3 py-2 text-[13px] font-semibold bg-[color:var(--ok)] text-white hover:brightness-110"
                   >
                     Mark COMPLETED
                   </button>
@@ -190,7 +198,11 @@ export default function TransactionDetailPage(
           )}
         </Section>
 
-        <Section title="Razorpay refs" className="lg:col-span-3">
+        <Section
+          eyebrow="Razorpay"
+          title="References"
+          className="lg:col-span-3"
+        >
           {razorpay_refs.length === 0 ? (
             <p className="text-[13px] text-[color:var(--text-3)]">
               No Razorpay calls were made for this action.
@@ -213,13 +225,17 @@ export default function TransactionDetailPage(
           )}
         </Section>
 
-        <Section title="Audit chain" className="lg:col-span-3">
+        <Section
+          eyebrow="Audit"
+          title="Hash-chained events for this action"
+          className="lg:col-span-3"
+        >
           {auditError ? (
-            <p className="text-[12px] text-[color:var(--bad)] mono">
+            <p className="text-[11px] text-[color:var(--bad)] mono">
               {auditError.message}
             </p>
           ) : null}
-          <div className="flex flex-col divide-y divide-[color:var(--border)]">
+          <div className="flex flex-col divide-y divide-[color:var(--border-inset)]">
             {entries.length === 0 ? (
               <p className="text-[13px] text-[color:var(--text-3)] py-2">
                 No audit entries.
@@ -240,7 +256,7 @@ export default function TransactionDetailPage(
                     prev {shortHash(e.previous_hash, 12)} → curr{" "}
                     {shortHash(e.current_hash, 12)}
                   </div>
-                  <pre className="mono text-[10.5px] text-[color:var(--text-2)] mt-2 overflow-x-auto scroll-slim bg-[color:var(--surface-2)] border border-[color:var(--border)] rounded p-2">
+                  <pre className="mono text-[10.5px] text-[color:var(--text-2)] mt-2 overflow-x-auto scroll-slim bg-[color:var(--surface-2)] border border-[color:var(--border-inset)] rounded p-2">
                     {JSON.stringify(e.event_data, null, 2)}
                   </pre>
                 </div>

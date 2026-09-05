@@ -6,11 +6,12 @@ import type { DecisionResult, ActionStatus } from "@/lib/types";
 export type Tone = "ok" | "warn" | "bad" | "neutral" | "info";
 
 const toneClass: Record<Tone, string> = {
-  ok: "bg-[var(--ok-soft)] text-[color:var(--ok)] border-[color:var(--ok)]/30",
-  warn: "bg-[var(--warn-soft)] text-[color:var(--warn)] border-[color:var(--warn)]/30",
-  bad: "bg-[var(--bad-soft)] text-[color:var(--bad)] border-[color:var(--bad)]/30",
-  neutral: "bg-[color:var(--surface-2)] text-[color:var(--text-2)] border-[color:var(--border)]",
-  info: "bg-[color:var(--accent)]/10 text-[color:var(--accent)] border-[color:var(--accent)]/30",
+  ok: "bg-[color:var(--ok-soft)] text-[color:var(--ok)] border-[color:var(--ok-border)]",
+  warn: "bg-[color:var(--warn-soft)] text-[color:var(--warn)] border-[color:var(--warn-border)]",
+  bad: "bg-[color:var(--bad-soft)] text-[color:var(--bad)] border-[color:var(--bad-border)]",
+  neutral:
+    "bg-[color:var(--neutral-soft)] text-[color:var(--text-2)] border-[color:var(--border)]",
+  info: "bg-[color:var(--brand-blue-soft)] text-[color:var(--brand-blue)] border-[color:var(--brand-blue)]/25",
 };
 
 export function Pill({
@@ -24,7 +25,7 @@ export function Pill({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide ${toneClass[tone]} ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10.5px] font-medium uppercase tracking-wide ${toneClass[tone]} ${className}`}
     >
       {children}
     </span>
@@ -38,12 +39,22 @@ export function CheckLine({
   value,
   tone = "ok",
   detail,
+  animated = false,
 }: {
   label: string;
   value: string;
   tone?: Tone;
   detail?: string;
+  animated?: boolean;
 }) {
+  const dot =
+    tone === "ok"
+      ? "bg-[color:var(--ok)]"
+      : tone === "warn"
+        ? "bg-[color:var(--warn)]"
+        : tone === "bad"
+          ? "bg-[color:var(--bad)]"
+          : "bg-[color:var(--text-4)]";
   const glyph =
     tone === "ok" ? "✓" : tone === "warn" ? "!" : tone === "bad" ? "✕" : "•";
   const glyphColor =
@@ -53,13 +64,23 @@ export function CheckLine({
         ? "text-[color:var(--warn)]"
         : tone === "bad"
           ? "text-[color:var(--bad)]"
-          : "text-[color:var(--text-3)]";
+          : "text-[color:var(--text-4)]";
   return (
-    <div className="flex items-start justify-between gap-3 py-2">
+    <div
+      className={`flex items-start justify-between gap-3 py-2 ${
+        animated ? "check-appear" : ""
+      }`}
+    >
       <div className="flex items-start gap-2 min-w-0">
-        <span className={`mt-0.5 text-sm font-bold ${glyphColor}`}>{glyph}</span>
+        <span
+          className={`mt-1 inline-flex items-center justify-center w-4 h-4 rounded-full ${dot} bg-opacity-15`}
+        >
+          <span className={`text-[10px] font-bold ${glyphColor}`}>{glyph}</span>
+        </span>
         <div className="min-w-0">
-          <div className="section-label">{label}</div>
+          <div className="text-[12.5px] text-[color:var(--text)] font-medium">
+            {label}
+          </div>
           {detail ? (
             <div className="text-[11px] text-[color:var(--text-3)] mt-0.5 leading-snug">
               {detail}
@@ -67,7 +88,7 @@ export function CheckLine({
           ) : null}
         </div>
       </div>
-      <div className="text-sm text-[color:var(--text)] font-medium tabular-nums text-right">
+      <div className="text-[12.5px] text-[color:var(--text)] font-medium tabular-nums text-right whitespace-nowrap">
         {value}
       </div>
     </div>
@@ -79,47 +100,66 @@ export function CheckLine({
 export function DecisionBadge({
   result,
   reason,
+  detail,
   className = "",
 }: {
   result: DecisionResult;
   reason?: string;
+  detail?: string;
   className?: string;
 }) {
   const conf =
     result === "ALLOW"
       ? {
-          bg: "bg-[var(--ok-soft)] text-[color:var(--ok)] border-[color:var(--ok)]/40",
-          icon: "●",
-          label: "ALLOW",
+          border: "border-[color:var(--ok-border)]",
+          bg: "bg-[color:var(--ok-soft)]",
+          text: "text-[color:var(--ok)]",
+          label: "ALLOWED",
+          icon: "✓",
         }
       : result === "STEP_UP"
         ? {
-            bg: "bg-[var(--warn-soft)] text-[color:var(--warn)] border-[color:var(--warn)]/40",
-            icon: "●",
+            border: "border-[color:var(--warn-border)]",
+            bg: "bg-[color:var(--warn-soft)]",
+            text: "text-[color:var(--warn)]",
             label: "STEP-UP",
+            icon: "!",
           }
         : {
-            bg: "bg-[var(--bad-soft)] text-[color:var(--bad)] border-[color:var(--bad)]/40",
-            icon: "●",
-            label: "BLOCK",
+            border: "border-[color:var(--bad-border)]",
+            bg: "bg-[color:var(--bad-soft)]",
+            text: "text-[color:var(--bad)]",
+            label: "BLOCKED",
+            icon: "✕",
           };
   return (
     <div
-      className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${conf.bg} ${className}`}
+      className={`rounded-lg border ${conf.border} ${conf.bg} px-4 py-4 ${className}`}
     >
-      <span className="text-2xl leading-none">{conf.icon}</span>
-      <div className="flex flex-col leading-tight">
-        <span className="text-[10px] uppercase tracking-widest opacity-70">
-          Decision
+      <div className="flex items-center gap-3">
+        <span
+          className={`inline-flex items-center justify-center w-9 h-9 rounded-full ${conf.text} bg-white border ${conf.border} text-lg font-bold`}
+        >
+          {conf.icon}
         </span>
-        <span className="text-2xl font-semibold tracking-tight">
-          {conf.label}
-        </span>
+        <div className="flex flex-col leading-tight">
+          <span className={`eyebrow ${conf.text} opacity-90`}>Decision</span>
+          <span
+            className={`text-2xl font-semibold tracking-tight ${conf.text}`}
+          >
+            {conf.label}
+          </span>
+        </div>
+        {reason ? (
+          <span className={`ml-auto mono text-[11px] ${conf.text} opacity-80`}>
+            {reason}
+          </span>
+        ) : null}
       </div>
-      {reason ? (
-        <span className="ml-auto mono text-[11px] tracking-tight opacity-80">
-          {reason}
-        </span>
+      {detail ? (
+        <p className="text-[12.5px] text-[color:var(--text-2)] mt-3 leading-snug">
+          {detail}
+        </p>
       ) : null}
     </div>
   );
@@ -142,34 +182,45 @@ const actionStatusTone: Record<ActionStatus, Tone> = {
 };
 
 export function ActionStatusPill({ status }: { status: ActionStatus }) {
-  return <Pill tone={actionStatusTone[status]}>{status.replace(/_/g, " ")}</Pill>;
+  return (
+    <Pill tone={actionStatusTone[status]}>{status.replace(/_/g, " ")}</Pill>
+  );
 }
 
 // ---- Section container ---------------------------------------------------
 
 export function Section({
   title,
+  eyebrow,
   right,
   children,
   className = "",
+  hero = false,
 }: {
-  title: string;
+  title?: string;
+  eyebrow?: string;
   right?: ReactNode;
   children: ReactNode;
   className?: string;
+  hero?: boolean;
 }) {
   return (
-    <div className={`card p-4 flex flex-col ${className}`}>
-      <div className="flex items-center justify-between mb-3">
-        <span className="section-label">{title}</span>
-        {right ? <div>{right}</div> : null}
-      </div>
+    <div className={`${hero ? "card-hero" : "card"} p-5 flex flex-col ${className}`}>
+      {(title || eyebrow || right) && (
+        <div className="flex items-start justify-between mb-4 gap-3">
+          <div className="min-w-0">
+            {eyebrow ? <div className="eyebrow mb-1">{eyebrow}</div> : null}
+            {title ? <div className="section-title">{title}</div> : null}
+          </div>
+          {right ? <div className="shrink-0">{right}</div> : null}
+        </div>
+      )}
       {children}
     </div>
   );
 }
 
-// ---- Muted key/value row --------------------------------------------------
+// ---- Key/value row --------------------------------------------------
 
 export function KV({
   k,
@@ -182,16 +233,63 @@ export function KV({
 }) {
   return (
     <div className="flex items-center justify-between gap-3 py-1">
-      <span className="text-[11px] uppercase tracking-widest text-[color:var(--text-3)]">
-        {k}
-      </span>
+      <span className="eyebrow">{k}</span>
       <span
-        className={`text-sm text-[color:var(--text)] text-right truncate ${
+        className={`text-[13px] text-[color:var(--text)] text-right truncate ${
           mono ? "mono text-[12px]" : ""
         }`}
       >
         {v}
       </span>
     </div>
+  );
+}
+
+// ---- Metric card --------------------------------------------------
+
+export function Metric({
+  label,
+  value,
+  helper,
+  tone = "neutral",
+  className = "",
+}: {
+  label: string;
+  value: ReactNode;
+  helper?: ReactNode;
+  tone?: Tone;
+  className?: string;
+}) {
+  const accent =
+    tone === "ok"
+      ? "text-[color:var(--ok)]"
+      : tone === "warn"
+        ? "text-[color:var(--warn)]"
+        : tone === "bad"
+          ? "text-[color:var(--bad)]"
+          : "text-[color:var(--text)]";
+  return (
+    <div className={`card p-4 flex flex-col gap-1.5 ${className}`}>
+      <span className="eyebrow">{label}</span>
+      <span
+        className={`text-[22px] font-semibold tracking-tight tabular-nums ${accent}`}
+      >
+        {value}
+      </span>
+      {helper ? (
+        <span className="text-[11px] text-[color:var(--text-3)]">{helper}</span>
+      ) : null}
+    </div>
+  );
+}
+
+// ---- Trust signal --------------------------------------------------------
+
+export function TrustNote({ children }: { children: ReactNode }) {
+  return (
+    <p className="text-[11px] text-[color:var(--text-3)] flex items-center gap-1.5 leading-snug">
+      <span className="inline-block w-1 h-1 rounded-full bg-[color:var(--text-4)]" />
+      {children}
+    </p>
   );
 }

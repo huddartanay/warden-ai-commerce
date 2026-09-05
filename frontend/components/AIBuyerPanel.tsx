@@ -1,103 +1,168 @@
 import type { ScenarioEnvelope } from "@/lib/types";
 import { formatRupees } from "@/lib/api";
-import { KV, Pill, Section } from "./atoms";
+import { Pill, Section, TrustNote } from "./atoms";
+
+function safeSummary(rationale?: string | null): string {
+  if (!rationale) return "";
+  // Never expose raw chain-of-thought. Take the first sentence.
+  const firstSentence = rationale.split(/[.!?]/)[0]?.trim();
+  return firstSentence
+    ? firstSentence.length > 90
+      ? firstSentence.slice(0, 90) + "…"
+      : firstSentence
+    : "";
+}
 
 export function AIBuyerPanel({ env }: { env: ScenarioEnvelope | null }) {
   const agent = env?.agent ?? null;
   const cart = env?.cart ?? null;
+  const decision = env?.decision?.result ?? null;
+
+  const agentStatus =
+    decision === "ALLOW"
+      ? { label: "Proposal accepted", tone: "ok" as const }
+      : decision === "STEP_UP"
+        ? { label: "Awaiting human approval", tone: "warn" as const }
+        : decision === "BLOCK"
+          ? { label: "Proposal blocked", tone: "bad" as const }
+          : { label: "Idle", tone: "neutral" as const };
+
+  const summary = safeSummary(agent?.parsed_intent?.rationale);
 
   return (
     <Section
-      title="AI Buyer"
+      eyebrow="AI Buyer"
+      title="Customer's shopping agent"
       right={
         agent ? (
-          <Pill
-            tone={
-              agent.confidence >= 0.7 ? "ok" : agent.confidence >= 0.4 ? "warn" : "bad"
-            }
-          >
-            conf {agent.confidence.toFixed(2)}
-          </Pill>
+          <Pill tone={agentStatus.tone}>{agentStatus.label}</Pill>
         ) : null
       }
       className="h-full"
     >
-      <div className="flex flex-col gap-4 min-h-0">
-        <div>
-          <div className="section-label mb-1">Intent</div>
-          <p className="text-[13px] text-[color:var(--text)] leading-snug">
-            {agent?.intent_text ?? env?.decision?.explanation ?? (
-              <span className="text-[color:var(--text-3)]">
-                Click a demo button to run a scenario end-to-end. The AI Buyer's
-                intent will land here.
-              </span>
-            )}
-          </p>
-        </div>
-
-        {agent?.parsed_intent ? (
-          <div className="card p-3">
-            <div className="section-label mb-2">Agent reasoning</div>
-            <KV k="Category" v={agent.parsed_intent.desired_category} />
-            <KV
-              k="Max spend"
-              v={agent.parsed_intent.max_spend ? formatRupees(agent.parsed_intent.max_spend) : "unbounded"}
-            />
-            <KV k="Urgency" v={agent.parsed_intent.urgency} />
-            <p className="text-[11px] text-[color:var(--text-3)] mt-2 leading-snug">
-              {agent.parsed_intent.rationale}
+      {agent ? (
+        <div className="flex flex-col gap-4">
+          <div>
+            <div className="eyebrow mb-1.5">Customer intent</div>
+            <p className="text-[13.5px] text-[color:var(--text)] leading-snug">
+              “{agent.intent_text}”
             </p>
           </div>
-        ) : null}
 
-        {agent?.selected?.length ? (
           <div>
-            <div className="section-label mb-2">Selected products</div>
-            <div className="flex flex-col gap-1.5">
-              {agent.selected.map((s) => {
-                const c = agent.candidates.find((x) => x.id === s.catalog_item_id);
-                return (
-                  <div
-                    key={s.catalog_item_id}
-                    className="flex items-center justify-between text-[13px] py-1"
-                  >
-                    <span className="truncate">
-                      {c?.name ?? s.catalog_item_id}{" "}
-                      <span className="text-[color:var(--text-3)]">× {s.quantity}</span>
-                    </span>
-                    <span className="mono text-[12px] tabular-nums">
-                      {formatRupees(s.unit_price)}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+            <div className="eyebrow mb-2">Product discovery</div>
+            {agent.selected.length ? (
+              <div className="flex flex-col gap-1">
+                {agent.selected.map((s) => {
+                  const c = agent.candidates.find(
+                    (x) => x.id === s.catalog_item_id,
+                  );
+                  return (
+                    <div
+                      key={s.catalog_item_id}
+                      className="flex items-center justify-between text-[13px] py-1.5 border-b border-[color:var(--border-inset)] last:border-b-0"
+                    >
+                      <span className="truncate">
+                        {c?.name ?? s.catalog_item_id}
+                        {s.quantity > 1 ? (
+                          <span className="text-[color:var(--text-3)]">
+                            {" "}
+                            × {s.quantity}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="mono text-[12px] tabular-nums text-[color:var(--text-2)]">
+                        {formatRupees(s.unit_price)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-[12px] text-[color:var(--text-3)]">
+                No products selected.
+              </p>
+            )}
           </div>
-        ) : null}
 
-        {cart ? (
-          <div className="mt-auto pt-3 hairline flex items-center justify-between">
-            <div>
-              <div className="section-label">Cart total</div>
-              <div className="mono text-[11px] text-[color:var(--text-3)]">
-                {cart.id}
+          {cart ? (
+            <div className="card-flat p-3 flex items-center justify-between">
+              <div>
+                <div className="eyebrow">Proposed cart</div>
+                <div className="text-[11.5px] text-[color:var(--text-3)] mt-0.5">
+                  {cart.items.length} item{cart.items.length === 1 ? "" : "s"}
+                </div>
+              </div>
+              <div className="text-[22px] font-semibold tabular-nums tracking-tight">
+                {formatRupees(cart.total_amount)}
               </div>
             </div>
-            <div className="text-2xl font-semibold tracking-tight tabular-nums">
-              {formatRupees(cart.total_amount)}
-            </div>
-          </div>
-        ) : null}
+          ) : null}
 
-        {env?.action ? (
-          <div className="hairline pt-3">
-            <div className="section-label mb-1">Current action</div>
-            <div className="mono text-[11px] text-[color:var(--text-3)] break-all">
-              {env.action.id}
+          {summary ? (
+            <div>
+              <div className="eyebrow mb-1.5">Agent status</div>
+              <p className="text-[12.5px] text-[color:var(--text-2)] leading-snug">
+                {summary}.
+              </p>
+            </div>
+          ) : null}
+
+          <div className="mt-auto pt-3">
+            <TrustNote>Agent proposes only. Never authorizes payment.</TrustNote>
+          </div>
+        </div>
+      ) : env?.action ? (
+        <div className="flex flex-col gap-4">
+          <div>
+            <div className="eyebrow mb-1.5">Direct proposal</div>
+            <p className="text-[13.5px] text-[color:var(--text)] leading-snug">
+              A payment proposal was submitted directly to Warden (no AI buyer
+              in this scenario).
+            </p>
+          </div>
+          <div className="card-flat p-3 flex items-center justify-between">
+            <div>
+              <div className="eyebrow">Amount</div>
+              <div className="text-[11.5px] text-[color:var(--text-3)] mt-0.5 mono">
+                {env.action.id}
+              </div>
+            </div>
+            <div className="text-[22px] font-semibold tabular-nums tracking-tight">
+              {formatRupees(env.action.amount)}
             </div>
           </div>
-        ) : null}
-      </div>
+          <div className="mt-auto pt-3">
+            <TrustNote>All proposals — AI or human — pass through Warden.</TrustNote>
+          </div>
+        </div>
+      ) : (
+        <EmptyState />
+      )}
     </Section>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-center gap-3 py-4">
+      <div className="flex items-center gap-1.5 text-[color:var(--text-4)]">
+        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[color:var(--neutral-soft)] border border-[color:var(--border)] text-[10px]">
+          ○
+        </span>
+        <span className="text-[11px]">→</span>
+        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[color:var(--neutral-soft)] border border-[color:var(--border)] text-[10px]">
+          ○
+        </span>
+      </div>
+      <div>
+        <div className="text-[13px] font-medium text-[color:var(--text-2)]">
+          Waiting for an AI purchase proposal
+        </div>
+        <div className="text-[11.5px] text-[color:var(--text-3)] mt-1 max-w-[220px]">
+          Run a demo scenario to see the buyer agent build a cart.
+        </div>
+      </div>
+    </div>
   );
 }

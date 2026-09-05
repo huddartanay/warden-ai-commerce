@@ -174,6 +174,18 @@ export interface ScenarioEnvelope {
   second_call_duplicate_flag?: boolean;
 }
 
+export interface RecentAction {
+  action_id: string;
+  mandate_id: string;
+  amount: string;
+  currency: string;
+  status: ActionStatus;
+  created_at: string;
+  decision_result: DecisionResult | null;
+  reason_code: string | null;
+  razorpay_order_id: string | null;
+}
+
 export interface DemoSummary {
   mandate_count: number;
   action_count: number;
@@ -182,6 +194,13 @@ export interface DemoSummary {
   audit_chain_valid: boolean;
   audit_chain_reason: string | null;
   latest_action_id: string | null;
+  allowed_count: number;
+  blocked_count: number;
+  step_up_count: number;
+  protected_value: string;
+  blocked_value: string;
+  currency: string;
+  recent_actions: RecentAction[];
 }
 
 export interface ActionDetail {

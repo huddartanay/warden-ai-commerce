@@ -209,6 +209,36 @@ state machine, hash-chained audit writer.
 **Stage 3 — done:** Warden Core policy engine + coordinator + HTTP API. 73
 tests. See [docs/WARDEN_TEST_REPORT.md](docs/WARDEN_TEST_REPORT.md).
 **Stage 4 — done:** AI Buyer Agent + Explainer + demo mode.
+**Stage 9 — done:** Product-level UI/UX overhaul (9/10 hackathon target).
+Light-first fintech palette (warm off-white background, white surfaces,
+charcoal text, restrained blue, emerald / amber / rose for
+ALLOW / STEP-UP / BLOCK). New surfaces above the workspace: KPI cards
+(Protected value, Allowed, Blocked, Pending review, Success rate — all
+backend-derived, no fake metrics), FlowIndicator (AI Buyer → Warden →
+Razorpay → Audit with per-stage state including "Not called — Warden
+blocked" for the BLOCK path), plus a strong TopBar (LIVE DEMO ·
+Razorpay Test Mode · Backend connected · Audit verified — no localhost
+URL exposed). Three panels rebuilt: AI Buyer with intent quote /
+discovery / cart / status structure and short safe agent-status
+summary (never raw chain-of-thought); Warden hero with prominent
+Mandate card, 8 pillar checks in a two-column grid, big
+ALLOW / STEP-UP / BLOCK badge, "Why this was allowed / blocked / review
+required" explanation, and Razorpay action indicator; Audit vertical
+timeline with per-row hash-chain preview, clickable rows to
+transaction detail, Verify chain button, and "N entries verified" pill.
+Demo scenarios moved to a secondary card below the workspace with
+Successful Purchase marked primary and running-state feedback. New
+RecentTransactions table with Time / Action / Amount / Decision /
+Reason / Razorpay / Status columns, rows clickable to the detail
+page. HumanApprovalCard rewritten with premium copy for both
+STEP_UP_PENDING and PENDING_UNRESOLVED. Empty state redesigned as
+intentional "Warden is ready" panel with the flow diagram.
+Backend `/demo/summary` extended with `allowed_count`, `blocked_count`,
+`step_up_count`, `protected_value`, `blocked_value`, and
+`recent_actions[]` so the KPIs and transactions table stay 100%
+backend-driven — no fake decisions in frontend. Backend suite still
+166/166 green. Frontend `npm run build` clean.
+
 **Stage 8 — done:** Judge dashboard (Next.js + TS + Tailwind).
 Three-panel main screen — **AI Buyer** (intent, agent reasoning, selected
 products, cart, confidence, current action), **Warden hero** (7 pillar

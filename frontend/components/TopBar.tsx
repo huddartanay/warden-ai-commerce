@@ -1,5 +1,4 @@
 import type { DemoSummary } from "@/lib/types";
-import { API_BASE_URL } from "@/lib/api";
 import { Pill } from "./atoms";
 
 export function TopBar({
@@ -12,38 +11,38 @@ export function TopBar({
   return (
     <header className="flex items-center justify-between gap-4 flex-wrap">
       <div className="flex items-center gap-3">
-        <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--border-strong)] font-semibold">
+        <span className="inline-flex items-center justify-center w-9 h-9 rounded-md bg-[color:var(--accent)] text-white font-semibold shadow-sm">
           W
         </span>
         <div>
-          <div className="text-lg font-semibold tracking-tight leading-none">
+          <div className="text-[18px] font-semibold tracking-tight leading-none text-[color:var(--text)]">
             Warden
           </div>
-          <div className="text-[11px] text-[color:var(--text-3)] mt-0.5">
-            Deterministic authorization for AI-driven commerce
+          <div className="text-[11.5px] text-[color:var(--text-3)] mt-1">
+            Trust infrastructure for AI commerce ·{" "}
+            <span className="text-[color:var(--text-2)]">
+              AI proposes. Warden authorizes.
+            </span>
           </div>
         </div>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
+        <span className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-[color:var(--ok)]">
+          <span className="pulse" aria-hidden />
+          LIVE DEMO
+        </span>
+        <span className="text-[color:var(--text-4)]">·</span>
+        <Pill tone="info">Razorpay Test Mode</Pill>
         <Pill tone={backendUp ? "ok" : "bad"}>
-          backend {backendUp ? "up" : "unreachable"}
+          {backendUp ? "✓ Backend connected" : "Backend unreachable"}
         </Pill>
         {summary ? (
-          <>
-            <Pill tone={summary.audit_chain_valid ? "ok" : "bad"}>
-              audit {summary.audit_chain_valid ? "✓ verified" : "✕ broken"}
-            </Pill>
-            <Pill tone="neutral">
-              {summary.action_count} actions
-            </Pill>
-            <Pill tone={summary.pending_review_count > 0 ? "warn" : "neutral"}>
-              {summary.pending_review_count} pending review
-            </Pill>
-          </>
+          <Pill tone={summary.audit_chain_valid ? "ok" : "bad"}>
+            {summary.audit_chain_valid
+              ? "✓ Audit verified"
+              : "✕ Audit tampered"}
+          </Pill>
         ) : null}
-        <span className="mono text-[10px] text-[color:var(--text-3)] hidden sm:inline">
-          {API_BASE_URL}
-        </span>
       </div>
     </header>
   );

@@ -28,6 +28,12 @@ export function HumanApprovalCard({
   if (!mode || !env?.action) return null;
 
   const amount = formatRupees(env.action.amount);
+  const description =
+    env.cart?.items?.length === 1
+      ? env.cart.items[0].name
+      : env.cart?.items?.length
+        ? `Cart of ${env.cart.items.length} items`
+        : "AI purchase";
 
   const call = async (label: string, fn: () => Promise<unknown>) => {
     setBusy(label);
@@ -44,73 +50,93 @@ export function HumanApprovalCard({
 
   if (mode === "step_up") {
     return (
-      <div className="card-hero p-4 flex flex-col gap-3 border-[color:var(--warn)]/30">
-        <div className="flex items-center justify-between">
+      <div className="card-hero border-[color:var(--warn-border)] p-5 flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="section-label">Human approval required</div>
-            <div className="text-[15px] font-medium mt-1">
-              AI buyer requested {amount} purchase.
+            <div className="eyebrow text-[color:var(--warn)]">
+              Review required
+            </div>
+            <div className="text-[16px] font-semibold text-[color:var(--text)] mt-1">
+              AI buyer requested a purchase
+            </div>
+            <div className="mt-3 flex items-center gap-4 flex-wrap">
+              <div>
+                <div className="eyebrow">Description</div>
+                <div className="text-[13.5px] mt-0.5">{description}</div>
+              </div>
+              <div>
+                <div className="eyebrow">Amount</div>
+                <div className="text-[16px] font-semibold tabular-nums mt-0.5">
+                  {amount}
+                </div>
+              </div>
+              <div>
+                <div className="eyebrow">Reason</div>
+                <div className="mono text-[12px] mt-0.5 text-[color:var(--text-2)]">
+                  {env.decision?.reason_code ?? "APPROVAL_REQUIRED"}
+                </div>
+              </div>
             </div>
           </div>
           <Pill tone="warn">STEP-UP</Pill>
         </div>
-        <div className="text-[12px] text-[color:var(--text-2)]">
-          Reason:{" "}
-          <span className="mono">{env.decision?.reason_code ?? "APPROVAL_REQUIRED"}</span>
-          {env.decision?.explanation ? (
-            <span className="block mt-1 text-[color:var(--text-3)]">
-              {env.decision.explanation}
-            </span>
-          ) : null}
-        </div>
-        {err ? <p className="text-[11px] text-[color:var(--bad)] mono">{err}</p> : null}
-        <div className="flex gap-2 mt-1">
+        {env.decision?.explanation ? (
+          <p className="text-[12.5px] text-[color:var(--text-3)] leading-snug">
+            {env.decision.explanation}
+          </p>
+        ) : null}
+        {err ? (
+          <p className="text-[11px] text-[color:var(--bad)] mono">{err}</p>
+        ) : null}
+        <div className="flex items-center gap-2">
           <button
             disabled={busy !== null}
-            onClick={() =>
-              call("approve", () => approveAction(env.action!.id))
-            }
-            className="flex-1 rounded px-3 py-2 text-sm font-medium bg-[color:var(--ok)] text-black disabled:opacity-50 hover:brightness-110"
+            onClick={() => call("approve", () => approveAction(env.action!.id))}
+            className="flex-1 rounded-md px-4 py-2.5 text-[13px] font-semibold bg-[color:var(--ok)] text-white hover:brightness-110 disabled:opacity-50"
           >
-            {busy === "approve" ? "approving…" : "Approve"}
+            {busy === "approve" ? "Approving…" : "Approve purchase"}
           </button>
           <button
             disabled={busy !== null}
             onClick={() =>
-              call("revoke", () =>
+              call("block", () =>
                 resolveAction(env.action!.id, {
                   note: "Human rejected the step-up",
                   resolved_by: "judge",
                 }),
               )
             }
-            className="flex-1 rounded px-3 py-2 text-sm font-medium bg-[color:var(--bad)]/90 text-white disabled:opacity-50 hover:brightness-110"
+            className="rounded-md px-4 py-2.5 text-[13px] font-semibold border border-[color:var(--bad-border)] text-[color:var(--bad)] bg-white hover:bg-[color:var(--bad-soft)] disabled:opacity-50"
           >
-            {busy === "revoke" ? "rejecting…" : "Block"}
+            {busy === "block" ? "Rejecting…" : "Block"}
           </button>
         </div>
       </div>
     );
   }
 
-  // PENDING_UNRESOLVED — human reconciles after an uncertain payment outcome.
+  // PENDING_UNRESOLVED
   return (
-    <div className="card-hero p-4 flex flex-col gap-3 border-[color:var(--warn)]/30">
-      <div className="flex items-center justify-between">
+    <div className="card-hero border-[color:var(--warn-border)] p-5 flex flex-col gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="section-label">Pending human review</div>
-          <div className="text-[15px] font-medium mt-1">
-            {amount} payment had an uncertain outcome.
+          <div className="eyebrow text-[color:var(--warn)]">
+            Pending human review
           </div>
+          <div className="text-[16px] font-semibold text-[color:var(--text)] mt-1">
+            {amount} payment had an uncertain outcome
+          </div>
+          <p className="text-[12.5px] text-[color:var(--text-3)] leading-snug mt-2 max-w-xl">
+            Warden preserved the mandate reservation because it doesn't know
+            whether the charge went through on Razorpay. Reconcile from what
+            the Razorpay dashboard shows.
+          </p>
         </div>
         <Pill tone="warn">PENDING_UNRESOLVED</Pill>
       </div>
-      <div className="text-[12px] text-[color:var(--text-2)]">
-        Warden preserved the mandate reservation because it doesn't know
-        whether the charge actually went through on Razorpay. Resolve based on
-        what the Razorpay dashboard shows.
-      </div>
-      {err ? <p className="text-[11px] text-[color:var(--bad)] mono">{err}</p> : null}
+      {err ? (
+        <p className="text-[11px] text-[color:var(--bad)] mono">{err}</p>
+      ) : null}
       <div className="grid grid-cols-2 gap-2">
         <button
           disabled={busy !== null}
@@ -118,14 +144,14 @@ export function HumanApprovalCard({
             call("failed", () =>
               resolveAction(env.action!.id, {
                 new_action_status: "PAYMENT_FAILED",
-                note: "Confirmed no capture occurred; rolling back reservation.",
+                note: "Confirmed no capture. Rolling back.",
                 resolved_by: "judge",
               }),
             )
           }
-          className="rounded px-3 py-2 text-sm bg-[color:var(--bad)]/90 text-white disabled:opacity-50"
+          className="rounded-md px-4 py-2.5 text-[13px] font-semibold border border-[color:var(--bad-border)] text-[color:var(--bad)] bg-white hover:bg-[color:var(--bad-soft)] disabled:opacity-50"
         >
-          {busy === "failed" ? "resolving…" : "Mark FAILED (rollback)"}
+          {busy === "failed" ? "Resolving…" : "Mark FAILED (rollback)"}
         </button>
         <button
           disabled={busy !== null}
@@ -138,9 +164,9 @@ export function HumanApprovalCard({
               }),
             )
           }
-          className="rounded px-3 py-2 text-sm bg-[color:var(--ok)] text-black disabled:opacity-50"
+          className="rounded-md px-4 py-2.5 text-[13px] font-semibold bg-[color:var(--ok)] text-white hover:brightness-110 disabled:opacity-50"
         >
-          {busy === "completed" ? "resolving…" : "Mark COMPLETED"}
+          {busy === "completed" ? "Resolving…" : "Mark COMPLETED"}
         </button>
       </div>
     </div>

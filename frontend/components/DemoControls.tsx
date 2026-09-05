@@ -3,43 +3,92 @@
 import { useState } from "react";
 import {
   ScenarioName,
-  SCENARIO_LABELS,
   SCENARIO_NAMES,
   resetDemo,
   runScenario,
-  verifyAuditChain,
 } from "@/lib/api";
-import type { AuditVerifyResponse, ScenarioEnvelope } from "@/lib/types";
+import type { ScenarioEnvelope } from "@/lib/types";
+import { Section } from "./atoms";
 
-const scenarioTone: Record<ScenarioName, string> = {
-  successful_purchase:
-    "border-[color:var(--ok)]/40 hover:bg-[var(--ok-soft)] hover:text-[color:var(--ok)]",
-  cap_exceeded:
-    "border-[color:var(--bad)]/40 hover:bg-[var(--bad-soft)] hover:text-[color:var(--bad)]",
-  step_up:
-    "border-[color:var(--warn)]/40 hover:bg-[var(--warn-soft)] hover:text-[color:var(--warn)]",
-  duplicate:
-    "border-[color:var(--warn)]/40 hover:bg-[var(--warn-soft)] hover:text-[color:var(--warn)]",
-  price_drift:
-    "border-[color:var(--bad)]/40 hover:bg-[var(--bad-soft)] hover:text-[color:var(--bad)]",
-  payment_failure:
-    "border-[color:var(--warn)]/40 hover:bg-[var(--warn-soft)] hover:text-[color:var(--warn)]",
+interface ScenarioSpec {
+  name: ScenarioName;
+  label: string;
+  glyph: string;
+  helper: string;
+  primary?: boolean;
+  tone: "ok" | "bad" | "warn" | "info";
+}
+
+const SPECS: ScenarioSpec[] = [
+  {
+    name: "successful_purchase",
+    label: "Successful Purchase",
+    glyph: "✓",
+    helper: "AI proposes valid coffee restock",
+    primary: true,
+    tone: "ok",
+  },
+  {
+    name: "cap_exceeded",
+    label: "Cap Exceeded",
+    glyph: "✕",
+    helper: "Amount over remaining limit",
+    tone: "bad",
+  },
+  {
+    name: "step_up",
+    label: "Step-Up",
+    glyph: "!",
+    helper: "Human approval required",
+    tone: "warn",
+  },
+  {
+    name: "duplicate",
+    label: "Duplicate",
+    glyph: "↻",
+    helper: "Same idempotency key twice",
+    tone: "warn",
+  },
+  {
+    name: "price_drift",
+    label: "Price Drift",
+    glyph: "⚠",
+    helper: "Current price ≠ quoted price",
+    tone: "bad",
+  },
+  {
+    name: "payment_failure",
+    label: "Payment Failure",
+    glyph: "×",
+    helper: "Capture fails — pending review",
+    tone: "warn",
+  },
+];
+
+const toneClass: Record<ScenarioSpec["tone"], string> = {
+  ok: "hover:bg-[color:var(--ok-soft)] hover:border-[color:var(--ok-border)]",
+  bad: "hover:bg-[color:var(--bad-soft)] hover:border-[color:var(--bad-border)]",
+  warn: "hover:bg-[color:var(--warn-soft)] hover:border-[color:var(--warn-border)]",
+  info: "hover:bg-[color:var(--brand-blue-soft)] hover:border-[color:var(--brand-blue)]",
+};
+
+const glyphColor: Record<ScenarioSpec["tone"], string> = {
+  ok: "text-[color:var(--ok)]",
+  bad: "text-[color:var(--bad)]",
+  warn: "text-[color:var(--warn)]",
+  info: "text-[color:var(--brand-blue)]",
 };
 
 export function DemoControls({
   onScenario,
-  onVerify,
   onReset,
   busy,
 }: {
   onScenario: (env: ScenarioEnvelope) => void;
-  onVerify: (v: AuditVerifyResponse) => void;
   onReset: () => void;
   busy: boolean;
 }) {
-  const [pending, setPending] = useState<ScenarioName | "reset" | "verify" | null>(
-    null,
-  );
+  const [pending, setPending] = useState<ScenarioName | "reset" | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
 
   const run = async (name: ScenarioName) => {
@@ -68,67 +117,72 @@ export function DemoControls({
     }
   };
 
-  const doVerify = async () => {
-    setPending("verify");
-    setLastError(null);
-    try {
-      const v = await verifyAuditChain();
-      onVerify(v);
-    } catch (e) {
-      setLastError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setPending(null);
-    }
-  };
-
   const anyPending = pending !== null || busy;
 
   return (
-    <div className="card p-3 flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="section-label">Demo Control Panel</div>
-          <div className="text-[11px] text-[color:var(--text-3)] mt-0.5">
-            Each scenario runs the full stack — agent + Warden + Razorpay Test
-            + audit — server-side. No fake logic in this UI.
-          </div>
-        </div>
+    <Section
+      eyebrow="Demo scenarios"
+      title="Run the complete backend workflow"
+      right={
         <div className="flex items-center gap-2">
-          <button
-            onClick={doVerify}
-            disabled={anyPending}
-            className="text-[12px] px-3 py-1.5 rounded border border-[color:var(--border-strong)] hover:bg-[color:var(--surface-2)] disabled:opacity-50"
-          >
-            {pending === "verify" ? "verifying…" : "Verify chain"}
-          </button>
+          {pending && pending !== "reset" ? (
+            <span className="text-[11.5px] text-[color:var(--text-2)] flex items-center gap-2">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-[color:var(--brand-blue)] animate-pulse" />
+              Running scenario…
+            </span>
+          ) : null}
           <button
             onClick={doReset}
             disabled={anyPending}
-            className="text-[12px] px-3 py-1.5 rounded border border-[color:var(--border-strong)] hover:bg-[color:var(--surface-2)] disabled:opacity-50"
+            className="text-[11.5px] px-3 py-1.5 rounded-md border border-[color:var(--border-strong)] bg-white hover:bg-[color:var(--surface-2)] disabled:opacity-50 font-medium"
           >
-            {pending === "reset" ? "resetting…" : "Reset demo"}
+            {pending === "reset" ? "Resetting…" : "Reset demo"}
           </button>
         </div>
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mt-1">
-        {SCENARIO_NAMES.map((n) => (
+      }
+    >
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+        {SPECS.map((s) => (
           <button
-            key={n}
-            onClick={() => run(n)}
+            key={s.name}
+            onClick={() => run(s.name)}
             disabled={anyPending}
-            className={`text-[12px] font-medium tracking-tight px-3 py-2 rounded border bg-[color:var(--surface-2)] text-[color:var(--text)] ${scenarioTone[n]} disabled:opacity-50`}
+            className={`text-left px-3.5 py-3 rounded-lg border border-[color:var(--border)] bg-white ${
+              s.primary ? "ring-1 ring-[color:var(--ok-border)]" : ""
+            } ${toneClass[s.tone]} disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-start gap-2.5`}
           >
-            {pending === n ? "running…" : SCENARIO_LABELS[n]}
+            <span
+              className={`inline-flex items-center justify-center w-6 h-6 rounded-full border border-[color:var(--border)] bg-[color:var(--surface-2)] ${glyphColor[s.tone]} font-bold text-[12px] shrink-0`}
+            >
+              {s.glyph}
+            </span>
+            <div className="min-w-0">
+              <div className="text-[13px] font-semibold text-[color:var(--text)] flex items-center gap-2">
+                {s.label}
+                {s.primary ? (
+                  <span className="text-[9.5px] font-medium text-[color:var(--ok)] uppercase tracking-wider">
+                    primary
+                  </span>
+                ) : null}
+                {pending === s.name ? (
+                  <span className="text-[10px] text-[color:var(--text-3)]">
+                    running…
+                  </span>
+                ) : null}
+              </div>
+              <div className="text-[11.5px] text-[color:var(--text-3)] mt-0.5 leading-snug">
+                {s.helper}
+              </div>
+            </div>
           </button>
         ))}
       </div>
 
       {lastError ? (
-        <div className="text-[11px] text-[color:var(--bad)] mt-1 mono truncate">
+        <div className="text-[11.5px] text-[color:var(--bad)] mt-3 mono">
           {lastError}
         </div>
       ) : null}
-    </div>
+    </Section>
   );
 }
