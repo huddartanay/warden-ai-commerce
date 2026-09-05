@@ -6,12 +6,11 @@ Submission for the Razorpay AI Builder Internship 2026 — Track 1: AI Growth & 
 
 | | |
 |---|---|
-| 🌐 **Live demo** | <https://warden-frontend-rfk1.onrender.com> |
-| 💻 **Repository** | <https://github.com/huddartanay/warden-ai-commerce> |
-| 🎥 **5-minute demo video** | `VIDEO_URL_HERE` |
-| 🔧 **API** (if a judge wants to poke it directly) | <https://warden-backend-3wqx.onrender.com/docs> |
+| 🌐 **Live product** — click any scenario | <https://warden-frontend-rfk1.onrender.com> |
+| 💻 **GitHub repository** | <https://github.com/huddartanay/warden-ai-commerce> |
+| 🔧 **API** — if a judge wants to poke it directly | <https://warden-backend-3wqx.onrender.com/docs> |
 
-> Deploy + record in ~15 minutes with the step-by-step guide in [`docs/DEPLOY.md`](docs/DEPLOY.md).
+> **Note on the demo:** the live product above **is** the interactive demo — click any of the six scenario cards on the dashboard (Successful Purchase, Cap Exceeded, Step-Up, Duplicate, Price Drift, Payment Failure) and every stage runs against the real backend end-to-end. No frontend faking. All decisions come from the deterministic Warden engine on the server. Deploy is on Render's free tier, so the first click after 15 min of inactivity may take ~30 sec to wake the backend — subsequent clicks are instant.
 
 ---
 
