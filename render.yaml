@@ -52,10 +52,8 @@ services:
     startCommand: npm run start -- -p $PORT
     envVars:
       - key: NEXT_PUBLIC_API_BASE_URL
-        # Render substitutes the sibling service's public URL at build time.
-        fromService:
-          name: warden-backend
-          type: web
-          property: hostport
+        # Hardcoded to the backend's public URL. Update if you rename or
+        # re-deploy the backend service to a new host.
+        value: https://warden-backend-3wqx.onrender.com
       - key: NODE_VERSION
         value: "22.17.0"
