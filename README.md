@@ -6,9 +6,10 @@ Submission for the Razorpay AI Builder Internship 2026 — Track 1: AI Growth & 
 
 | | |
 |---|---|
-| 🌐 **Live demo** | `LIVE_URL_HERE` |
-| 💻 **Repository** | `REPO_URL_HERE` |
+| 🌐 **Live demo** | <https://warden-frontend-rfk1.onrender.com> |
+| 💻 **Repository** | <https://github.com/huddartanay/warden-ai-commerce> |
 | 🎥 **5-minute demo video** | `VIDEO_URL_HERE` |
+| 🔧 **API** (if a judge wants to poke it directly) | <https://warden-backend-3wqx.onrender.com/docs> |
 
 > Deploy + record in ~15 minutes with the step-by-step guide in [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
